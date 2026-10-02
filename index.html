@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<!-- interactive-widget：安卓键盘弹出时收缩布局视口，底部评论栏才会跟着键盘上移 -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#f3f3f6">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>写作</title>
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/layout.css">
+<link rel="stylesheet" href="css/components.css">
+</head>
+<body>
+  <div id="backdrop">
+    <div class="bg" data-section="home"></div>
+    <div class="bg" data-section="shelf"></div>
+    <div class="bg" data-section="me"></div>
+  </div>
+  <div id="app">
+    <main id="view"></main>
+    <nav id="tabbar"></nav>
+  </div>
+  <div id="modal-root"></div>
+  <div id="layer-root"></div>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

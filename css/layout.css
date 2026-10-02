@@ -1,0 +1,67 @@
+/* ---------- 背景层（可自定义图片，按 section 切换） ---------- */
+#backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+#backdrop .bg {
+  position: absolute;
+  inset: 0;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  opacity: 0;
+  transition: opacity .35s ease;
+}
+html[data-section="home"] #backdrop .bg[data-section="home"],
+html[data-section="shelf"] #backdrop .bg[data-section="shelf"],
+html[data-section="me"] #backdrop .bg[data-section="me"] { opacity: 1; }
+
+/* ---------- 壳 ---------- */
+#app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+#view {
+  flex: 1;
+  min-width: 0;
+  padding-bottom: calc(var(--nav-h) + var(--safe-b) + 10px);
+}
+
+/* ---------- 底部导航 ---------- */
+#tabbar {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 50;
+  display: flex;
+  height: calc(var(--nav-h) + var(--safe-b));
+  padding-bottom: var(--safe-b);
+  background: rgba(var(--bg-rgb), var(--bar-bottom));
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border-top: 1px solid rgba(var(--bg-rgb), .0);
+}
+#tabbar .tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  color: var(--dim);
+  font-size: calc(10.5px * var(--fs));
+  line-height: 1;
+  transition: color .15s;
+}
+#tabbar .tab.active { color: var(--accent); }
+#tabbar .tab:active { opacity: .6; }
+
+/* ---------- 页面容器 ---------- */
+.page {
+  --pad: 16px;
+  padding: 0 var(--pad) 24px;
+}
+.sec-gap { height: 14px; }
