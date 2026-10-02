@@ -5,8 +5,10 @@ import { icon } from '../util/icons.js';
 import * as store from '../store.js';
 import { topbar } from '../components/topbar.js';
 import { showForm, openModal } from '../components/modal.js';
+import { listRow } from '../components/controls.js';
 import { toast } from '../components/toast.js';
 import { navigate } from '../router.js';
+import { canInstall, isIosStandalone, onInstallChange, promptInstall } from '../pwa.js';
 
 function avatarNode(size) {
   const profile = store.getState().profile;
@@ -143,8 +145,50 @@ export function render() {
         h('span', { class: 'chev' }, icon('chev', 18))
       )))
     ));
+
+    /*
+     * 安装入口。
+     * 只在「确实能装」的时候出现：浏览器已给出安装能力，或 iOS 可以手动加主屏。
+     * 一旦装成就整行隐藏 —— 已经装好的应用再提示安装是废话。
+     * beforeinstallprompt 是异步到达的，所以订阅状态变化后重绘。
+     */
+    const installCard = h('div', { class: 'card' });
+    slot.appendChild(installCard);
+
+    function drawInstall() {
+      installCard.replaceChildren();
+
+      const showIosGuide = isIosStandalone();
+      if (!showIosGuide && !canInstall()) return;
+
+      const sub = showIosGuide
+        ? '通过 Safari 分享菜单添加到主屏幕'
+        : '安装后可从桌面直接打开，断网也能用';
+
+      installCard.appendChild(h('div', { class: 'list' },
+        listRow({
+          label: '安装到桌面',
+          sub,
+          iconName: 'download',
+          onClick: async () => {
+            // iOS 没有 beforeinstallprompt，只能引导用户手动加
+            if (showIosGuide) {
+              toast('点底部「分享」→「添加到主屏幕」');
+              return;
+            }
+            const res = await promptInstall();
+            if (res === 'dismissed') toast('已取消安装');
+          }
+        })
+      ));
+    }
+
+    drawInstall();
+    // 页面被替换时由 router 丢弃 DOM，这里退订即可
+    unsubscribeInstall = onInstallChange(drawInstall);
   }
 
+  let unsubscribeInstall = null;
   draw();
   return page;
 }

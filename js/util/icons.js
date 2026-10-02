@@ -72,6 +72,14 @@ const ICONS = {
       '<circle cx="12" cy="5.6" r="1.45" fill="currentColor" stroke="none"/>'
       + '<circle cx="12" cy="12" r="1.45" fill="currentColor" stroke="none"/>'
       + '<circle cx="12" cy="18.4" r="1.45" fill="currentColor" stroke="none"/>'
+  },
+  /* 下载 / 安装：与 upload 同构，箭头落向托盘，托盘底部加一道安装基座 */
+  download: {
+    d:
+      '<path d="M4.6 13.8v3.9a2 2 0 0 0 2 2h10.8a2 2 0 0 0 2-2v-3.9"/>'
+      + '<path d="M12 3.9v9.6"/>'
+      + '<path d="M8.2 9.7 12 13.5l3.8-3.8"/>'
+      + '<path d="M4.2 20.6h15.6"/>'
   }
 };
 
