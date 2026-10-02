@@ -26,11 +26,13 @@ export function topbar({ title = '', back: showBack = false, align = 'left', her
   }
 
   actions.forEach((a) => {
-    right.appendChild(h('button', {
+    const btn = h('button', {
       class: `tb-btn ${a.kind || ''} ${a.text ? 'text' : ''}`.trim(),
-      onClick: a.onClick,
+      // 把事件透出去：要挂下拉菜单的按钮靠 e.currentTarget 定位自己
+      onClick: (e) => a.onClick(e, btn),
       title: a.label || ''
-    }, a.text ? a.text : icon(a.icon, 21)));
+    }, a.text ? a.text : icon(a.icon, 21));
+    right.appendChild(btn);
   });
 
   bar.append(

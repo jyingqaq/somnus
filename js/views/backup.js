@@ -9,7 +9,7 @@ import { openModal, showForm, showAlert, showConfirm } from '../components/modal
 import { toast } from '../components/toast.js';
 import {
   stringifyBackup, backupFileName, parseBackup, summarize, formatSummary,
-  byteSize, formatBytes, hasApiKey, downloadText, readFileText, MAX_BACKUP_BYTES
+  byteSize, formatBytes, downloadText, readFileText, MAX_BACKUP_BYTES
 } from '../services/backup.js';
 import { applyAppearance } from '../theme.js';
 import { back } from '../router.js';
@@ -67,9 +67,7 @@ export function render() {
         ),
         h('div', {
           class: 'bk-note',
-          text: hasApiKey(state)
-            ? '备份里包含 API Key（明文），转发给别人前请先删掉。'
-            : '下载后妥善保存，导入时用它即可完整恢复。'
+          text: '备份不包含 API 设置，导入后需要自行重新配置。'
         })
       ),
       actions: [
@@ -118,8 +116,12 @@ export function render() {
         fact('备份内容', formatSummary(incoming)),
         fact('当前数据', formatSummary(current))
       ),
-      h('div', { class: 'bk-note', text: '覆盖导入：当前数据全部替换为备份内容，含设置、外观、提示词和 API Key。' }),
+      h('div', { class: 'bk-note', text: '覆盖导入：当前数据全部替换为备份内容，含设置、外观和提示词。' }),
       h('div', { class: 'bk-note', text: '合并导入：只按 id 去重追加书本、创作、角色等内容，设置与外观保持当前不变。' }),
+      h('div', { class: 'bk-note', text: 'API 设置不在备份范围内，导入前后都保持当前不变。' }),
+      parsed.hadApiKey
+        ? h('div', { class: 'bk-note', text: '这份备份是旧版本导出的，里面的 API Key 已被自动忽略。' })
+        : null,
       sameShape
         ? h('div', { class: 'bk-note', text: '两边的数据量看起来差不多，如果只是想恢复，选覆盖更干净。' })
         : null
@@ -179,7 +181,7 @@ export function render() {
     clear(slot);
     const state = store.getState();
     const summary = summarize(state);
-    const size = byteSize(JSON.stringify(state));
+    const size = byteSize(stringifyBackup(state));
 
     slot.appendChild(topbar({
       title: '备份',
@@ -203,7 +205,7 @@ export function render() {
     slot.appendChild(h('div', { class: 'card' },
       listRow({
         label: '导出全部数据',
-        sub: '生成一个 .json 备份文件，可下载或复制',
+        sub: '生成一个 .json 备份文件，可下载或复制（不含 API 设置）',
         iconName: 'load',
         onClick: openExport
       })

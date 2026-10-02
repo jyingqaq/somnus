@@ -1,6 +1,9 @@
 /**
  * 数据备份：整份存档的打包格式、导入校验与内容统计。
  *
+ * 备份一律不含 API 配置（主接口、评论专用接口、API 预设）——
+ * 备份文件是要传来传去的，Key 不跟着走；换设备后自行在设置里填一次即可。
+ *
  * 除了最下面的 downloadText()（要碰 DOM）之外全是纯函数，
  * 可以脱离浏览器直接跑用例验证。
  */
@@ -17,14 +20,37 @@ const FINGERPRINT_KEYS = [
   'prompt', 'settings', 'profile', 'appearance', 'folders'
 ];
 
+/** settings 里属于 API 配置的字段 */
+const API_SETTING_KEYS = ['apiBase', 'apiKey', 'model', 'temperature', 'maxTokens', 'commentApi'];
+
+/** 顶层属于 API 配置的字段 */
+const API_TOP_KEYS = ['apiPresets', 'activeApiPreset'];
+
 /* ---------------- 导出 ---------------- */
+
+/**
+ * 抹掉存档里的 API 配置：settings 下的接口字段（连同 commentApi）、
+ * 以及顶层的 apiPresets / activeApiPreset。
+ * 导出和导入都过这一道，Key 就不进备份文件了。
+ */
+export function stripApiConfig(data) {
+  if (!data || typeof data !== 'object') return {};
+  const out = { ...data };
+  if (out.settings && typeof out.settings === 'object') {
+    const s = { ...out.settings };
+    API_SETTING_KEYS.forEach((k) => { delete s[k]; });
+    out.settings = s;
+  }
+  API_TOP_KEYS.forEach((k) => { delete out[k]; });
+  return out;
+}
 
 export function buildBackup(state) {
   return {
     app: BACKUP_APP,
     version: BACKUP_VERSION,
     exportedAt: Date.now(),
-    data: state
+    data: stripApiConfig(state)
   };
 }
 
@@ -46,7 +72,8 @@ export function backupFileName(date = new Date()) {
  * 把文本解析成存档对象。不合法就抛带人话说明的错误，调用方直接 toast 出去。
  * 兼容两种写法：带 { app, version, data } 外壳的正式备份，
  * 以及直接把 state 对象存下来的文件。
- * @returns {{data:object, exportedAt:number, version:number}}
+ * 返回的 data 已经去掉 API 配置 —— 就算拿到旧版本带 Key 的备份也不会写进来。
+ * @returns {{data:object, exportedAt:number, version:number, hadApiKey:boolean}}
  */
 export function parseBackup(text) {
   const raw = String(text == null ? '' : text).trim();
@@ -66,16 +93,20 @@ export function parseBackup(text) {
   }
 
   // 有外壳就剥一层，没有就当成裸存档
-  const data = (parsed.data && typeof parsed.data === 'object' && !Array.isArray(parsed.data))
+  const raw0 = (parsed.data && typeof parsed.data === 'object' && !Array.isArray(parsed.data))
     ? parsed.data
     : parsed;
 
-  if (!FINGERPRINT_KEYS.some((k) => k in data)) {
+  if (!FINGERPRINT_KEYS.some((k) => k in raw0)) {
     throw new Error('这看起来不是本应用导出的备份');
   }
 
+  // 旧版本的备份里存过 Key，这里直接丢掉
+  const hadApiKey = hasApiKey(raw0);
+
   return {
-    data,
+    data: stripApiConfig(raw0),
+    hadApiKey,
     exportedAt: Number(parsed.exportedAt) || 0,
     version: Number(parsed.version) || 0
   };
@@ -103,8 +134,7 @@ export function summarize(data) {
     roles: countOf(data, 'roles'),
     worlds: countOf(data, 'worlds'),
     ideas: countOf(data, 'ideas'),
-    presets: countOf(data, 'presets'),
-    apiPresets: countOf(data, 'apiPresets')
+    presets: countOf(data, 'presets')
   };
 }
 
@@ -119,7 +149,6 @@ export function formatSummary(s) {
   if (s.worlds) parts.push(`${s.worlds} 个世界书`);
   if (s.ideas) parts.push(`${s.ideas} 条灵感`);
   if (s.presets) parts.push(`${s.presets} 条输入预设`);
-  if (s.apiPresets) parts.push(`${s.apiPresets} 套 API 配置`);
   return parts.length ? parts.join(' · ') : '暂无内容';
 }
 
@@ -134,10 +163,17 @@ export function formatBytes(n) {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/** 存档里有没有配置过 API Key —— 备份里带着明文 Key，导出前值得提醒一句 */
+/**
+ * 存档里有没有配置过 API Key。
+ * 现在的备份不会带 Key，这个只用来识别「旧版本导出的、里面还留着 Key 的备份」，
+ * 导入时提示一句让人放心。
+ */
 export function hasApiKey(data) {
   const s = data && data.settings;
-  return !!(s && typeof s.apiKey === 'string' && s.apiKey.trim());
+  if (!s) return false;
+  if (typeof s.apiKey === 'string' && s.apiKey.trim()) return true;
+  const c = s.commentApi;
+  return !!(c && typeof c.apiKey === 'string' && c.apiKey.trim());
 }
 
 /* ---------------- 落盘 ---------------- */

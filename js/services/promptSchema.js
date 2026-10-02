@@ -167,3 +167,61 @@ export function upgradePromptConfig(kind, cfg) {
 
   return cfg;
 }
+
+/* ---------------- 预设 ---------------- */
+
+/**
+ * 预设是某一类提示词的完整快照，**只属于它被保存时的那一类**。
+ * 存放时按 kind 分桶（见 store.DEFAULTS.promptPresets），
+ * 载入时再走一遍 alignBlocksToKind 做兜底对齐，两道一起保证「预设不串」。
+ *
+ * @param {string} kind
+ * @param {string} name
+ * @returns {{id:string,name:string,kind:string,system:string,blocks:Array,createdAt:number}}
+ */
+export function makePromptPreset(kind, name, cfg) {
+  return {
+    id: blockId(),
+    name,
+    kind,
+    system: cfg.system || '',
+    // 存快照而不是引用：外部后续改动当前配置，不该顺着改到已保存的预设
+    blocks: structuredClone(cfg.blocks || []),
+    createdAt: Date.now()
+  };
+}
+
+/**
+ * 把一份块列表对齐到指定 kind：
+ * - 丢掉不属于该 kind 的数据块（例如把「续写」的预设错当成「创作」载入时）
+ * - 补齐该 kind 应该有、但预设里没有的数据块（顺序按默认顺序追加）
+ * - id 全部重新生成，避免和当前配置里的块撞 id
+ *
+ * 自定义文本块原样保留（它们本来就与 kind 无关），只重发 id。
+ */
+export function alignBlocksToKind(kind, blocks) {
+  const want = new Set((DATA_BLOCKS[kind] || []).map((b) => b.type));
+  const has = new Set();
+
+  const kept = (blocks || [])
+    .filter((b) => b && b.type)
+    .filter((b) => {
+      if (b.type === 'text') return true;
+      if (!want.has(b.type)) return false;   // 别的 kind 的数据块，丢掉
+      if (has.has(b.type)) return false;     // 同一个数据块重复了，只留一个
+      has.add(b.type);
+      return true;
+    })
+    .map((b) => ({ ...b, id: blockId() }));
+
+  // 补齐漏掉的数据块，保证载入后这一类该有的变量都在
+  (DEFAULT_ORDER[kind] || []).forEach((type) => {
+    if (has.has(type)) return;
+    const meta = (DATA_BLOCKS[kind] || []).find((b) => b.type === type);
+    if (!meta) return;
+    has.add(type);
+    kept.push({ id: blockId(), type, name: meta.name, enabled: true });
+  });
+
+  return kept;
+}

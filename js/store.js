@@ -4,7 +4,8 @@
  */
 
 import {
-  defaultPromptConfig, upgradePromptConfig, isDataBlock, blockId, VOLATILE_BLOCK
+  defaultPromptConfig, upgradePromptConfig, isDataBlock, blockId, VOLATILE_BLOCK,
+  makePromptPreset, alignBlocksToKind
 } from './services/promptSchema.js';
 
 const KEY = 'ai_writer_state_v1';
@@ -17,7 +18,19 @@ const DEFAULTS = {
     apiKey: '',
     model: 'gpt-4o-mini',
     temperature: 0.9,
-    maxTokens: 0
+    maxTokens: 0,
+    /**
+     * 评论专用接口：章节页「获取评论」走这套，不影响正文续写。
+     * enabled 关掉时整体跟随上面主配置；开着时哪一项留空就只回退那一项。
+     */
+    commentApi: {
+      enabled: false,
+      apiBase: '',
+      apiKey: '',
+      model: '',
+      temperature: '',
+      maxTokens: ''
+    }
   },
   /** API 配置预设：切换不同服务商/Key 用 */
   apiPresets: [],       // { id, name, apiBase, apiKey, model, temperature, maxTokens }
@@ -45,6 +58,17 @@ const DEFAULTS = {
     create: defaultPromptConfig('create'),
     continue: defaultPromptConfig('continue'),
     comment: defaultPromptConfig('comment')
+  },
+
+  /**
+   * 提示词预设：按 kind 分桶存，创作/续写/评论各存各的，互不相通。
+   * 形状刻意定成 { [kind]: Array } 而不是拍平成一个 Array ——
+   * 分桶后「载入别的类别的预设」这件事在数据层就做不到，不依赖界面记得传对 kind。
+   */
+  promptPresets: {
+    create: [],
+    continue: [],
+    comment: []
   },
 
   /** 界面上的临时状态：跟着用户操作走，切页 / 重开都不丢 */
@@ -133,6 +157,21 @@ function migrate(s) {
     }
     cfg.blocks = cfg.blocks.map((b) => ({ enabled: true, ...b, id: b.id || blockId() }));
     upgradePromptConfig(kind, cfg);
+  });
+
+  // 提示词预设：按 kind 补齐桶，顺手清掉不认识 / kind 对不上的脏数据
+  const presets = (s.promptPresets && typeof s.promptPresets === 'object') ? s.promptPresets : {};
+  s.promptPresets = {};
+  ['create', 'continue', 'comment'].forEach((kind) => {
+    s.promptPresets[kind] = (Array.isArray(presets[kind]) ? presets[kind] : [])
+      .filter((p) => p && p.name && Array.isArray(p.blocks))
+      .map((p) => ({
+        ...p,
+        id: p.id || uid(),
+        // kind 写错的（手改存档或早期版本）一律按所在桶归位
+        kind,
+        blocks: alignBlocksToKind(kind, p.blocks)
+      }));
   });
   return s;
 }
@@ -224,6 +263,40 @@ export function patchSettings(patch) {
   emit();
 }
 
+/** 只改评论专用接口，不动主配置 */
+export function patchCommentApi(patch) {
+  state.settings.commentApi = { ...(state.settings.commentApi || {}), ...patch };
+  emit();
+}
+
+/** 把评论专用配置里的空白项用主配置补上，得到一份可直接发请求的完整配置 */
+export function resolveCommentApi() {
+  const s = state.settings;
+  const c = s.commentApi || {};
+  if (!c.enabled) return { ...s, fromCommentApi: false };
+  const take = (v, main) => (v === '' || v == null ? main : v);
+  return {
+    apiBase: take(c.apiBase, s.apiBase),
+    apiKey: take(c.apiKey, s.apiKey),
+    model: take(c.model, s.model),
+    temperature: take(c.temperature, s.temperature),
+    maxTokens: take(c.maxTokens, s.maxTokens),
+    fromCommentApi: true
+  };
+}
+
+/** 评论专用配置是否真的和主配置不一样，用于设置页提示 */
+export function commentApiDiffers() {
+  const s = state.settings;
+  const c = s.commentApi || {};
+  if (!c.enabled) return false;
+  // 数字项两边一个存 number 一个存 input 的字符串，得按数值比，
+  // 否则主配置 0.9、评论里手填 "0.9" 会被误判成「有差异」。
+  const same = (a, b) => (a === '' || a == null ? true : (Number.isFinite(Number(b)) ? Number(a) === Number(b) : String(a) === String(b)));
+  return ['apiBase', 'apiKey', 'model', 'temperature', 'maxTokens']
+    .some((k) => !same(c[k], s[k]));
+}
+
 export function patchAppearance(patch) {
   state.appearance = deepMerge(state.appearance, patch);
   emit();
@@ -287,6 +360,55 @@ export function removePromptBlock(kind, id) {
 export function resetPrompt(kind) {
   state.prompt[kind] = defaultPromptConfig(kind);
   emit();
+}
+
+/* ---------------- 提示词预设 ---------------- */
+
+/**
+ * 某一类提示词的预设列表。
+ * 只读这个桶：调用方拿不到别的类别的预设，界面也就无法把「续写」的预设载进「创作」。
+ */
+export function listPromptPresets(kind) {
+  return (state.promptPresets && state.promptPresets[kind]) || [];
+}
+
+/** 把当前 kind 的提示词存成预设。存的是快照，之后改配置不影响已存的那份。 */
+export function savePromptPreset(kind, name) {
+  const item = makePromptPreset(kind, name, state.prompt[kind]);
+  state.promptPresets[kind] = [item, ...listPromptPresets(kind)];
+  emit();
+  return item;
+}
+
+/**
+ * 载入预设：整份替换当前 kind 的配置。
+ * 块列表过一遍 alignBlocksToKind，保证不会带进别的类别的数据块。
+ */
+export function applyPromptPreset(kind, id) {
+  const p = listPromptPresets(kind).find((it) => it.id === id);
+  if (!p) return null;
+  state.prompt[kind] = {
+    system: p.system || '',
+    blocks: alignBlocksToKind(kind, p.blocks)
+  };
+  emit();
+  return p;
+}
+
+export function renamePromptPreset(kind, id, name) {
+  state.promptPresets[kind] = listPromptPresets(kind).map((it) => (it.id === id ? { ...it, name } : it));
+  emit();
+}
+
+export function removePromptPreset(kind, id) {
+  state.promptPresets[kind] = listPromptPresets(kind).filter((it) => it.id !== id);
+  emit();
+}
+
+/** 预设总数，给「我的」页显示用 */
+export function countPromptPresets() {
+  return ['create', 'continue', 'comment']
+    .reduce((n, k) => n + listPromptPresets(k).length, 0);
 }
 
 /* ---------------- API 预设 ---------------- */
@@ -430,22 +552,35 @@ export function snapshot() {
 }
 
 /** 合并导入时会被带进来的「内容」类数据 */
-const CONTENT_KEYS = ['books', 'creations', 'presets', 'roles', 'worlds', 'ideas', 'apiPresets'];
+const CONTENT_KEYS = ['books', 'creations', 'presets', 'roles', 'worlds', 'ideas'];
 
 /** 把外来存档规整成和内部一致的结构，再挂到当前 state 上 */
 function adopt(next) {
   return migrate(deepMerge(structuredClone(DEFAULTS), structuredClone(next)));
 }
 
-/** 整份覆盖：设置、API Key、外观、提示词全部以备份为准 */
+/**
+ * 整份覆盖：书、创作、角色、外观、提示词等全部以备份为准。
+ * 备份里不含 API 配置（见 services/backup.js），所以本机现有的接口设置原样保留，
+ * 不会出现「导入一次备份，Key 没了」。
+ */
 export function replaceState(next) {
+  const keepApi = {
+    settings: state.settings,
+    apiPresets: state.apiPresets,
+    activeApiPreset: state.activeApiPreset
+  };
   state = adopt(next);
+  state.settings = { ...state.settings, ...structuredClone(keepApi.settings) };
+  state.apiPresets = keepApi.apiPresets;
+  state.activeApiPreset = keepApi.activeApiPreset;
   emit();
 }
 
 /**
- * 合并导入：只把备份里的内容（书 / 创作 / 角色 / 世界书 / 灵感 / 预设）按 id 去重后追加，
- * 设置、外观、提示词、个人资料一律保持当前不动 —— 避免把新设备上的配置冲掉。
+ * 合并导入：只把备份里的内容（书 / 创作 / 角色 / 世界书 / 灵感 / 输入预设 / 提示词预设）
+ * 按 id 去重后追加，设置、外观、提示词、个人资料一律保持当前不动 ——
+ * 避免把新设备上的配置冲掉。
  * @returns {number} 新增的条目数
  */
 export function mergeContent(next) {
@@ -458,6 +593,17 @@ export function mergeContent(next) {
     const extra = (incoming[key] || []).filter((it) => it && it.id && !have.has(it.id));
     if (extra.length) {
       base[key] = [...(base[key] || []), ...extra];
+      added += extra.length;
+    }
+  });
+
+  // 提示词预设按 kind 分桶，逐桶去重追加，同样不碰当前生效的提示词
+  ['create', 'continue', 'comment'].forEach((kind) => {
+    const have = new Set(listPromptPresets(kind).map((it) => it && it.id));
+    const extra = ((incoming.promptPresets || {})[kind] || [])
+      .filter((it) => it && it.id && !have.has(it.id));
+    if (extra.length) {
+      base.promptPresets[kind] = [...listPromptPresets(kind), ...extra];
       added += extra.length;
     }
   });

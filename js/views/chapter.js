@@ -8,7 +8,7 @@ import { toast } from '../components/toast.js';
 import { showConfirm, openModal } from '../components/modal.js';
 import { showLoading, hideLoading } from '../components/loading.js';
 import { generateComments } from '../services/comment.js';
-import { back } from '../router.js';
+import { back, navigate } from '../router.js';
 
 const MAX_INPUT_H = 110;
 
@@ -137,15 +137,36 @@ export function render({ params }) {
     });
   }
 
+  /** 接口没配好时，给一个直达设置的入口，而不是只弹一句报错 */
+  function showNoApi() {
+    openModal({
+      title: '还没有可用的接口',
+      body: h('div', { class: 'alert-msg' },
+        '拉取评论需要一个可用的 API 地址和 Key。如果想让它和正文续写用不同的模型，可以到「设置 → API」里单独配置一套评论接口。'),
+      actions: [
+        { label: '取消', kind: 'plain', onClick: (close) => close() },
+        { label: '去设置', kind: 'primary', onClick: (close) => { close(); navigate('/settings/api'); } }
+      ]
+    });
+  }
+
   async function fetchComments() {
     if (generating) return;
+
+    // 提前拦一次，省得白等一个网络往返
+    const cfg = store.resolveCommentApi();
+    if (!(cfg.apiBase || '').trim() || !(cfg.apiKey || '').trim()) {
+      showNoApi();
+      return;
+    }
+
     generating = true;
     renderComments();
 
     const fresh = store.getChapter(params.id, params.cid);
     const freshBook = store.get('books', params.id);
 
-    showLoading('生成评论');
+    showLoading(cfg.fromCommentApi ? '生成评论（专用接口）' : '生成评论');
     try {
       const { raw, list } = await generateComments({
         book: freshBook,

@@ -1,5 +1,6 @@
 /**
  * 章节评论：请求 AI 生成评论，并把结果交给 commentParser 解析。
+ * 走评论专用接口（未配置时自动回落到主配置）。
  */
 
 import { ask } from './ai.js';
@@ -17,7 +18,7 @@ export { parseComments };
  */
 export async function generateComments(ctx) {
   const { system, user } = buildCommentPrompt(ctx);
-  const raw = await ask({ system, user });
+  const raw = await ask({ system, user }, { scope: 'comment' });
   // 已有网名传给解析器，用于校验模型 @ 的人是否真的存在
   const names = (ctx.comments || []).map((c) => c.name).filter(Boolean);
   return { raw, list: parseComments(raw, { names }) };

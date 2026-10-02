@@ -1,13 +1,14 @@
 /** 我的 · 提示词 · 块编辑器（长按拖动排序） */
 
-import { h, clear } from '../util/dom.js';
+import { h, clear, fmtTime } from '../util/dom.js';
 import { icon } from '../util/icons.js';
 import * as store from '../store.js';
 import { topbar } from '../components/topbar.js';
-import { showForm, showConfirm, openModal } from '../components/modal.js';
+import { showForm, showConfirm, showSheet, openModal } from '../components/modal.js';
 import { switchBox, listRow } from '../components/controls.js';
 import { sortable } from '../components/sortable.js';
 import { toast } from '../components/toast.js';
+import { dropdown } from '../components/dropdown.js';
 import { KINDS, DATA_BLOCKS, isDataBlock, previewPrompt } from '../services/prompt.js';
 import { back } from '../router.js';
 
@@ -20,6 +21,8 @@ export function render({ params }) {
   page.appendChild(slot);
 
   const cfg = () => store.promptOf(kind);
+  /** 本页预设（只取当前这一类，别的类别的预设这里根本拿不到） */
+  const presets = () => store.listPromptPresets(kind);
 
   /* ---------------- 系统提示词 ---------------- */
 
@@ -100,6 +103,111 @@ export function render({ params }) {
     });
   }
 
+  /* ---------------- 预设 ---------------- */
+
+  /** 保存：把当前这份提示词存成一个预设，可反复切换 */
+  async function savePreset() {
+    const values = await showForm({
+      title: `保存${meta.label}预设`,
+      fields: [{
+        key: 'name',
+        label: '预设名称',
+        placeholder: `例如：${meta.label}·日常 / ${meta.label}·细腻`
+      }],
+      submitLabel: '保存'
+    });
+    if (!values) return;
+
+    // 同名要显式确认：预设往往是调了很久的，不该被一次误点冲掉。
+    // 确认覆盖就把旧的删掉再存，避免留下两个同名预设。
+    const dup = presets().find((p) => p.name === values.name);
+    if (dup) {
+      const ok = await showConfirm({
+        title: '预设已存在',
+        message: `这一页已经有「${values.name}」，要用当前提示词覆盖它吗？`,
+        confirmLabel: '覆盖'
+      });
+      if (!ok) return;
+      store.removePromptPreset(kind, dup.id);
+    }
+
+    store.savePromptPreset(kind, values.name);
+    toast('已保存');
+    draw();
+  }
+
+  /** 载入：从本页预设里挑一个恢复到当前 */
+  function loadPreset() {
+    const list = presets();
+    if (!list.length) {
+      // 空的也给个出路，直接把人送到保存那一步
+      showSheet({
+        title: '载入预设',
+        items: [{
+          label: '保存一份再载入',
+          sub: `当前还没有${meta.label}预设`,
+          icon: 'save',
+          onClick: savePreset
+        }]
+      });
+      return;
+    }
+
+    showSheet({
+      title: `载入${meta.label}预设`,
+      items: list.map((p) => ({
+        label: p.name,
+        sub: `${p.blocks.length} 块 · ${fmtTime(p.createdAt)}`,
+        onClick: () => applyPreset(p)
+      }))
+    });
+  }
+
+  async function applyPreset(p) {
+    // 载入是整份替换，先说清楚会覆盖掉现在手改的东西
+    const ok = await showConfirm({
+      title: '载入预设',
+      message: `当前${meta.label}提示词将被「${p.name}」整份替换，未保存的改动会丢失。`,
+      confirmLabel: '载入'
+    });
+    if (!ok) return;
+    store.applyPromptPreset(kind, p.id);
+    toast('已载入');
+    draw();
+  }
+
+  /** 预设管理：重命名 / 删除 */
+  function presetMenu(p) {
+    showSheet({
+      title: p.name,
+      items: [
+        { label: '载入这个预设', icon: 'load', onClick: () => applyPreset(p) },
+        { label: '重命名', icon: 'edit', onClick: () => renamePreset(p) },
+        { label: '删除', icon: 'trash', onClick: () => deletePreset(p) }
+      ]
+    });
+  }
+
+  async function renamePreset(p) {
+    const values = await showForm({
+      title: '重命名预设',
+      fields: [{ key: 'name', label: '预设名称', value: p.name }],
+      submitLabel: '保存'
+    });
+    if (!values) return;
+    store.renamePromptPreset(kind, p.id, values.name);
+    toast('已重命名');
+    draw();
+  }
+
+  async function deletePreset(p) {
+    const ok = await showConfirm({ title: '删除预设', message: p.name });
+    if (!ok) return;
+    store.removePromptPreset(kind, p.id);
+    toast('已删除');
+    draw();
+  }
+
   async function resetDefault() {
     const ok = await showConfirm({
       title: '恢复默认',
@@ -110,6 +218,20 @@ export function render({ params }) {
     store.resetPrompt(kind);
     toast('已恢复默认');
     draw();
+  }
+
+  /** 右上角「更多」：点开后从上到下 保存 / 载入 / 恢复 */
+  function openMenu(anchor) {
+    dropdown({
+      anchor,
+      width: '200px',
+      items: [
+        { label: '保存', sub: '存为预设', iconName: 'save', onClick: savePreset },
+        { label: '载入', sub: presets().length ? `${presets().length} 个预设` : '暂无预设', iconName: 'load', onClick: loadPreset },
+        { divider: true },
+        { label: '恢复', sub: '回到初始状态', iconName: 'refresh', onClick: resetDefault }
+      ]
+    });
   }
 
   /* ---------------- 渲染 ---------------- */
@@ -159,7 +281,7 @@ export function render({ params }) {
       onBack: () => back('/prompt'),
       actions: [
         { icon: 'spark', onClick: preview },
-        { icon: 'refresh', onClick: resetDefault }
+        { icon: 'more', label: '更多', onClick: (e, btn) => openMenu(btn) }
       ]
     }));
 
@@ -192,6 +314,26 @@ export function render({ params }) {
     slot.appendChild(h('div', { style: { height: '14px' } }));
     slot.appendChild(h('button', { class: 'btn block', onClick: addBlock },
       icon('plus', 18), h('span', { text: '添加提示词块' })
+    ));
+
+    /* 预设：只列当前这一类的，标题里点明是给谁用的 */
+    slot.appendChild(h('div', { class: 'section-title', text: `${meta.label}预设` }));
+    slot.appendChild(h('div', { class: 'card' },
+      listRow({ label: '保存当前为预设', iconName: 'save', onClick: savePreset }),
+      presets().map((p) => h('div', {
+        class: 'row',
+        onClick: () => applyPreset(p)
+      },
+        icon('bookmark', 20, 'ico row-ico'),
+        h('div', { class: 'row-main' },
+          h('div', { class: 'row-title', text: p.name }),
+          h('div', { class: 'row-sub', text: `${p.blocks.length} 块 · ${fmtTime(p.createdAt)}` })
+        ),
+        h('button', {
+          class: 'row-op',
+          onClick: (e) => { e.stopPropagation(); presetMenu(p); }
+        }, icon('edit', 18))
+      ))
     ));
   }
 

@@ -18,9 +18,13 @@ export function render() {
       h('div', { class: 'list' }, Object.entries(KINDS).map(([kind, meta]) => {
         const cfg = store.promptOf(kind);
         const on = cfg.blocks.filter((b) => b.enabled !== false).length;
+        // 预设数量按类分别显示：一眼能看出哪几类存过方案，也提示预设不跨类
+        const n = store.listPromptPresets(kind).length;
+        const parts = [meta.desc, `${on}/${cfg.blocks.length} 块生效`];
+        if (n) parts.push(`${n} 个预设`);
         return listRow({
           label: meta.label,
-          sub: `${meta.desc} · ${on}/${cfg.blocks.length} 块生效`,
+          sub: parts.join(' · '),
           iconName: ICONS[kind],
           onClick: () => navigate(`/prompt/${kind}`)
         });

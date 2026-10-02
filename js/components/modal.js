@@ -76,16 +76,34 @@ export function openModal({ title, body, actions = [], sheet = false, dismissabl
   return { close, card, nodes };
 }
 
-/** 表单弹窗，字段默认必填（required:false 可跳过），未填时提交按钮禁用 */
+/**
+ * 表单弹窗，字段默认必填（required:false 可跳过），未填时提交按钮禁用
+ *
+ * 字段类型：text（默认）/ textarea / select / custom。
+ * custom 不产生输入框，而是把 { type:'custom', render(ctx) } 交给调用方自己拼 DOM，
+ * ctx 提供 inputs（按 key 取别的输入框）、setValue（回填并触发校验）、validate。
+ * 「从文档导入」就是靠它把文件内容写进同一个表单里的「详细内容」。
+ */
 export function showForm({ title, fields = [], submitLabel = '保存', cancelLabel = '取消', onSubmit, dangerLabel }) {
   return new Promise((resolve) => {
     const inputs = {};
     // select 永远有值（空字符串也可能是合法选项），默认不参与必填校验
+    // custom 没有输入框，天然不参与
     const requiredKeys = fields
-      .filter((f) => (f.type === 'select' ? f.required === true : f.required !== false))
+      .filter((f) => (f.type === 'select' ? f.required === true : (f.type === 'custom' ? false : f.required !== false)))
       .map((f) => f.key);
 
+    // custom 字段先占位，等所有输入框建好再回头填内容，
+    // 这样 render(ctx) 里拿到的 inputs 才是完整的。
+    const pending = [];
+
     const body = h('div', { class: 'form' }, fields.map((f) => {
+      if (f.type === 'custom') {
+        const slot = h('div', { class: 'form-row' });
+        pending.push({ slot, f });
+        return slot;
+      }
+
       const row = h('label', { class: 'form-row' }, h('span', { class: 'form-label', text: f.label }));
       let input;
       if (f.type === 'textarea') {
@@ -115,6 +133,15 @@ export function showForm({ title, fields = [], submitLabel = '保存', cancelLab
 
     const read = () => Object.fromEntries(Object.entries(inputs).map(([k, el]) => [k, (el.value || '').trim()]));
 
+    /** 回填某个字段并立刻重算必填状态（给 custom 字段用） */
+    function setValue(key, value) {
+      const el = inputs[key];
+      if (!el) return;
+      el.value = value;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      validate();
+    }
+
     const actions = [];
     if (dangerLabel) {
       actions.push({ label: dangerLabel, kind: 'danger', onClick: (close) => { done({ __danger: true }); close(); } });
@@ -136,14 +163,23 @@ export function showForm({ title, fields = [], submitLabel = '保存', cancelLab
 
     const submitBtn = actions.find((a) => a.kind === 'primary');
     const submitNode = modal.nodes[actions.indexOf(submitBtn)];
-    const validate = () => {
-      submitNode.disabled = !requiredKeys.every((k) => (inputs[k].value || '').trim());
-    };
+
+    // 用函数声明而不是 const 箭头：custom 字段的 render 会在 microtask 里跑，
+    // 那时若已走到 setValue → validate，提前声明的函数不会踩 TDZ。
+    function validate() {
+      submitNode.disabled = !requiredKeys.every((k) => (inputs[k] && inputs[k].value || '').trim());
+    }
     Object.values(inputs).forEach((el) => el.addEventListener('input', validate));
     validate();
 
+    // inputs 与 validate 都就位了，现在才去填 custom 字段
+    pending.forEach(({ slot, f }) => {
+      const node = f.render && f.render({ inputs, setValue, validate });
+      if (node) slot.appendChild(node);
+    });
+
     const first = inputs[fields[0] && fields[0].key];
-    if (first) setTimeout(() => { try { first.focus(); } catch {} }, 140);
+    if (first && first.focus) setTimeout(() => { try { first.focus(); } catch {} }, 140);
   });
 }
 

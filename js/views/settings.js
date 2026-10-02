@@ -12,6 +12,8 @@ export function render() {
   const page = h('div', { class: 'page' });
   const s = store.getState().settings;
   const ap = store.getState().appearance;
+  // 评论走独立接口时，在副标题上标出来，避免忘了自己配过一套
+  const commentTag = store.commentApiDiffers() ? ' · 评论独立' : '';
 
   page.append(
     topbar({ title: '设置', back: true, align: 'center', onBack: () => back('/me') }),
@@ -19,7 +21,7 @@ export function render() {
       listRow({
         label: 'API',
         iconName: 'link',
-        sub: s.model || '未设置模型',
+        sub: (s.model || '未设置模型') + commentTag,
         onClick: () => navigate('/settings/api')
       })
     ),

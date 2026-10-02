@@ -65,7 +65,14 @@ const ICONS = {
   chat: { d: '<path d="M7.6 6h8.8a3.2 3.2 0 0 1 3.2 3.2v4.4a3.2 3.2 0 0 1-3.2 3.2h-4.2L7.6 20v-3.2a3.2 3.2 0 0 1-3.2-3.2V9.2A3.2 3.2 0 0 1 7.6 6z"/>' },
   refresh: { d: '<path d="M19.6 12a7.6 7.6 0 1 1-2.2-5.4"/><path d="M19.6 4.4v4.7h-4.7"/>' },
   expand: { d: '<path d="M4 9.5V4h5.5"/><path d="M20 14.5V20h-5.5"/><path d="M20 9.5V4h-5.5"/><path d="M4 14.5V20h5.5"/>' },
-  shrink: { d: '<path d="M9.5 4v5.5H4"/><path d="M14.5 20v-5.5H20"/><path d="M14.5 4v5.5H20"/><path d="M9.5 20v-5.5H4"/>' }
+  shrink: { d: '<path d="M9.5 4v5.5H4"/><path d="M14.5 20v-5.5H20"/><path d="M14.5 4v5.5H20"/><path d="M9.5 20v-5.5H4"/>' },
+  /* 更多：竖排三点。圆点自带 fill/stroke 覆盖，svg 根上的 none 只是兜底 */
+  more: {
+    d:
+      '<circle cx="12" cy="5.6" r="1.45" fill="currentColor" stroke="none"/>'
+      + '<circle cx="12" cy="12" r="1.45" fill="currentColor" stroke="none"/>'
+      + '<circle cx="12" cy="18.4" r="1.45" fill="currentColor" stroke="none"/>'
+  }
 };
 
 export function svg(name, size = 22, strokeWidth) {

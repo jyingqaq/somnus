@@ -450,6 +450,39 @@
 .card > .form-row .field:focus { border-color: var(--accent); }
 .form-label { font-size: calc(13px * var(--fs)); color: var(--dim); font-weight: 500; }
 
+/* ================= 文档导入 ================= */
+/* 虚线框：表达「这是个可选的旁路，不是主流程」 */
+.imp { display: flex; flex-direction: column; gap: 7px; }
+.imp-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 46px;
+  border: 1.5px dashed var(--line);
+  border-radius: var(--r);
+  background: var(--surface-2);
+  color: var(--dim);
+  font-size: calc(15px * var(--fs));
+  font-weight: 600;
+  transition: border-color .15s, color .15s, background .15s, transform .12s;
+}
+.imp-btn:active { transform: scale(.99); background: var(--surface-3); }
+.imp-btn .ico { color: var(--accent); }
+.imp-btn[disabled] { opacity: .5; }
+.imp-hint {
+  font-size: calc(12.5px * var(--fs));
+  color: var(--dim);
+  line-height: 1.55;
+}
+.imp-status:not(:empty) {
+  font-size: calc(12.5px * var(--fs));
+  color: var(--accent);
+  line-height: 1.55;
+  word-break: break-all;
+}
+
 @keyframes fade { from { opacity: 0; } }
 @keyframes pop { from { opacity: 0; transform: scale(.94) translateY(8px); } }
 @keyframes slideUp { from { transform: translateY(100%); } }
@@ -466,6 +499,12 @@
   gap: 8px;
   pointer-events: none;
 }
+/* 弹窗期间从顶部出现：底部那个位置正好是弹窗的「保存 / 取消」按钮行 */
+.toast-root.top {
+  bottom: auto;
+  top: calc(var(--safe-t) + 14px);
+}
+.toast-root.top .toast { animation: toastInTop .2s ease; }
 .toast {
   max-width: 82vw;
   padding: 11px 18px;
@@ -480,6 +519,7 @@
 :root[data-theme="dark"] .toast { background: rgba(240, 240, 248, .92); color: #14141a; }
 .toast.out { animation: toastOut .2s ease forwards; }
 @keyframes toastIn { from { opacity: 0; transform: translateY(10px) scale(.96); } }
+@keyframes toastInTop { from { opacity: 0; transform: translateY(-10px) scale(.96); } }
 @keyframes toastOut { to { opacity: 0; transform: translateY(6px) scale(.97); } }
 
 /* ================= 加载遮罩 ================= */
@@ -590,6 +630,51 @@ input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 9px; }
   background: rgba(12, 12, 20, .5);
 }
 .ring img { max-width: 88vw; max-height: 78vh; border-radius: var(--r); }
+
+/* ================= 锚定下拉菜单 ================= */
+/* 挂 fixed 在 body 上（顶栏是 sticky + backdrop-filter，会裁掉 absolute 子元素） */
+.dd-menu {
+  position: fixed;
+  z-index: 320;
+  min-width: 168px;
+  padding: 5px;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 30px rgba(18, 18, 30, .18);
+  animation: ddIn .14s ease-out;
+}
+.dd-menu.up { transform-origin: bottom right; }
+@keyframes ddIn { from { opacity: 0; transform: scale(.96) translateY(-4px); } }
+
+.dd-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 8px;
+  font-size: calc(14.5px * var(--fs));
+  font-weight: 500;
+  text-align: left;
+  transition: background .12s;
+}
+.dd-item:active { background: var(--surface-3); }
+.dd-item .ico { flex: none; color: var(--dim); }
+.dd-item .dd-label { flex: 1; min-width: 0; }
+.dd-item .dd-sub {
+  display: block;
+  font-size: calc(12px * var(--fs));
+  font-weight: 400;
+  color: var(--dim);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dd-item.danger, .dd-item.danger .ico { color: var(--danger); }
+.dd-item.disabled { opacity: .38; pointer-events: none; }
+.dd-div { height: 1px; margin: 4px 8px; background: var(--line); }
 
 /* ================= 开关 ================= */
 .switch {
