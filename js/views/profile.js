@@ -8,7 +8,7 @@ import { showForm, openModal } from '../components/modal.js';
 import { listRow } from '../components/controls.js';
 import { toast } from '../components/toast.js';
 import { navigate } from '../router.js';
-import { canInstall, isIosStandalone, onInstallChange, promptInstall } from '../pwa.js';
+import { installState, onInstallChange, promptInstall } from '../pwa.js';
 
 function avatarNode(size) {
   const profile = store.getState().profile;
@@ -148,34 +148,44 @@ export function render() {
 
     /*
      * 安装入口。
-     * 只在「确实能装」的时候出现：浏览器已给出安装能力，或 iOS 可以手动加主屏。
-     * 一旦装成就整行隐藏 —— 已经装好的应用再提示安装是废话。
-     * beforeinstallprompt 是异步到达的，所以订阅状态变化后重绘。
+     *
+     * 关键是**不能等 beforeinstallprompt 才显示入口**。Chrome 要用户点过一次、
+     * 停留满 30 秒才派发该事件，而浏览器菜单里的「安装应用」同期就已经可用了 ——
+     * 若把入口绑死在那个事件上，新访客会看到「没有安装按钮，但菜单里能装」的矛盾。
+     * 所以四种状态都显示入口，只是文案和点击行为不同。
      */
     const installCard = h('div', { class: 'card' });
     slot.appendChild(installCard);
 
-    function drawInstall() {
+    function drawInstall(state) {
       installCard.replaceChildren();
 
-      const showIosGuide = isIosStandalone();
-      if (!showIosGuide && !canInstall()) return;
+      // 已装成就整块撤掉：再提示安装是废话
+      if (state === 'installed') return;
 
-      const sub = showIosGuide
-        ? '通过 Safari 分享菜单添加到主屏幕'
-        : '安装后可从桌面直接打开，断网也能用';
+      const COPY = {
+        native: {
+          sub: '安装后可从桌面直接打开，断网也能用',
+          act: null            // 弹浏览器原生安装框
+        },
+        ios: {
+          sub: '通过 Safari 分享菜单添加到主屏幕',
+          act: () => toast('点底部「分享」→「添加到主屏幕」')
+        },
+        menu: {
+          sub: '在浏览器菜单里选择「安装应用」',
+          act: () => openMenuGuide()
+        }
+      };
+      const cur = COPY[state] || COPY.menu;
 
       installCard.appendChild(h('div', { class: 'list' },
         listRow({
           label: '安装到桌面',
-          sub,
+          sub: cur.sub,
           iconName: 'download',
           onClick: async () => {
-            // iOS 没有 beforeinstallprompt，只能引导用户手动加
-            if (showIosGuide) {
-              toast('点底部「分享」→「添加到主屏幕」');
-              return;
-            }
+            if (cur.act) { cur.act(); return; }
             const res = await promptInstall();
             if (res === 'dismissed') toast('已取消安装');
           }
@@ -183,7 +193,23 @@ export function render() {
       ));
     }
 
-    drawInstall();
+    /** 还没有原生安装能力时，弹窗讲清各浏览器怎么装 */
+    function openMenuGuide() {
+      const isEdge = /Edg\//.test(navigator.userAgent);
+      openModal({
+        title: '安装到桌面',
+        body: h('div', { class: 'form' },
+          h('div', { class: 'empty' },
+            isEdge ? '点右上角「…」，选「应用」→「安装此站点为应用」'
+              : '点右上角「⋮」菜单，选「投放」/「安装应用」'
+          ),
+          h('div', { class: 'form-label', text: '也可以直接点地址栏右侧的安装图标。' })
+        ),
+        actions: [{ label: '知道了', kind: 'primary', onClick: (close) => close() }]
+      });
+    }
+
+    drawInstall(installState());
     // 页面被替换时由 router 丢弃 DOM，这里退订即可
     unsubscribeInstall = onInstallChange(drawInstall);
   }
