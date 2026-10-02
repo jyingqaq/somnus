@@ -47,6 +47,9 @@ const DEFAULTS = {
     comment: defaultPromptConfig('comment')
   },
 
+  /** 界面上的临时状态：跟着用户操作走，切页 / 重开都不丢 */
+  ui: { composeOpen: false },
+
   profile: { avatar: '', nickname: '', bio: '' },
 
   /** 首页草稿，切页后不丢 */
@@ -231,6 +234,11 @@ export function patchProfile(patch) {
   emit();
 }
 
+export function patchUi(patch) {
+  state.ui = { ...state.ui, ...patch };
+  emit();
+}
+
 export function patchDraft(patch) {
   state.draft = { ...state.draft, ...patch };
   emit();
@@ -412,4 +420,57 @@ export function removeComments(bookId, chapterId, ids) {
   const set = new Set(Array.isArray(ids) ? ids : [ids]);
   chapter.comments = (chapter.comments || []).filter((m) => !set.has(m.id));
   emit();
+}
+
+/* ---------------- 备份 / 恢复 ---------------- */
+
+/** 当前存档的深拷贝，导出用（避免外部改到内部状态） */
+export function snapshot() {
+  return structuredClone(state);
+}
+
+/** 合并导入时会被带进来的「内容」类数据 */
+const CONTENT_KEYS = ['books', 'creations', 'presets', 'roles', 'worlds', 'ideas', 'apiPresets'];
+
+/** 把外来存档规整成和内部一致的结构，再挂到当前 state 上 */
+function adopt(next) {
+  return migrate(deepMerge(structuredClone(DEFAULTS), structuredClone(next)));
+}
+
+/** 整份覆盖：设置、API Key、外观、提示词全部以备份为准 */
+export function replaceState(next) {
+  state = adopt(next);
+  emit();
+}
+
+/**
+ * 合并导入：只把备份里的内容（书 / 创作 / 角色 / 世界书 / 灵感 / 预设）按 id 去重后追加，
+ * 设置、外观、提示词、个人资料一律保持当前不动 —— 避免把新设备上的配置冲掉。
+ * @returns {number} 新增的条目数
+ */
+export function mergeContent(next) {
+  const incoming = adopt(next);
+  const base = state;
+  let added = 0;
+
+  CONTENT_KEYS.forEach((key) => {
+    const have = new Set((base[key] || []).map((it) => it && it.id));
+    const extra = (incoming[key] || []).filter((it) => it && it.id && !have.has(it.id));
+    if (extra.length) {
+      base[key] = [...(base[key] || []), ...extra];
+      added += extra.length;
+    }
+  });
+
+  LIB_KEYS.forEach((key) => {
+    const have = new Set(((base.folders && base.folders[key]) || []).map((f) => f && f.id));
+    const extra = (((incoming.folders || {})[key]) || []).filter((f) => f && f.id && !have.has(f.id));
+    if (extra.length) {
+      base.folders = { ...base.folders, [key]: [...(base.folders[key] || []), ...extra] };
+      added += extra.length;
+    }
+  });
+
+  emit();
+  return added;
 }

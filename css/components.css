@@ -14,6 +14,16 @@
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 }
+/* 顶栏容器（视图里要单独重画顶栏时会拿它当槽位）。
+   槽位自身是 sticky：如果只让里面的 .topbar 做 sticky，槽位高度等于顶栏高度，
+   sticky 没有可滚动的余量，顶栏会跟着内容一起滚走。 */
+.bar-slot {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+.bar-slot > .topbar { position: static; z-index: auto; }
+
 .topbar .tb-side { display: flex; align-items: center; gap: 4px; flex: none; }
 .topbar .tb-title {
   flex: 1;
@@ -199,8 +209,9 @@
 }
 .cb-btn:active { transform: scale(.94); }
 
-.cb-toggle { background: var(--accent); color: var(--on-accent); }
-.cb-full { background: var(--surface-3); color: var(--dim); }
+/* 加号与全屏键都不要底色，只留图标 */
+.cb-toggle { background: none; color: var(--accent); }
+.cb-full { background: none; color: var(--dim); }
 
 /* 展开区：靠 max-width 过渡实现“横向推开” */
 .cb-items {
@@ -216,16 +227,13 @@
 }
 .cbox.open .cb-items { max-width: 420px; opacity: 1; }
 
+/* 只有图标，做成正方形按钮 */
 .cb-item {
-  flex-direction: column;
-  gap: 1px;
-  padding: 0 7px;
+  padding: 0;
   background: var(--surface);
   box-shadow: var(--shadow-sm);
-  color: var(--text);
+  color: var(--accent);
 }
-.cb-item .ico { color: var(--accent); }
-.cb-label { font-size: calc(9px * var(--fs)); line-height: 1; white-space: nowrap; }
 
 .cb-gap { flex: 1; min-width: 0; }
 
@@ -360,7 +368,9 @@
   font-size: calc(22px * var(--fs));
   font-weight: 750;
   line-height: 1.35;
-  padding: 6px 0 2px;
+  /* 往右缩一点：简介框是圆角，书名和它的左边缘对齐看着会歪；
+     下方 16px 是和简介框之间的间距 */
+  padding: 8px 8px 16px;
 }
 .book-intro { min-height: 92px; }
 
@@ -798,3 +808,23 @@ html.sort-lock { user-select: none; -webkit-user-select: none; }
 .cbar-send[disabled] { opacity: .4; }
 
 :root.bars-solid .cbar { backdrop-filter: none; }
+
+/* ================= 备份页的信息行 ================= */
+.bk-facts { display: flex; flex-direction: column; gap: 9px; padding: 2px 0 14px; }
+.bk-fact { display: flex; gap: 10px; font-size: calc(13.5px * var(--fs)); line-height: 1.6; }
+.bk-fact b {
+  flex: none;
+  width: 64px;
+  color: var(--dim);
+  font-weight: 500;
+}
+.bk-fact span { flex: 1; min-width: 0; word-break: break-word; }
+
+.bk-note {
+  font-size: calc(13px * var(--fs));
+  line-height: 1.68;
+  color: var(--dim);
+  padding-bottom: 9px;
+  word-break: break-word;
+}
+.bk-note:last-child { padding-bottom: 0; }

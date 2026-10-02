@@ -12,7 +12,7 @@ let currentPath = '';
 export const SECTIONS = {
   home: 'home', creation: 'home',
   shelf: 'shelf', book: 'shelf',
-  me: 'me', library: 'me', settings: 'me', prompt: 'me'
+  me: 'me', library: 'me', settings: 'me', prompt: 'me', backup: 'me'
 };
 
 export function define(path, view) {

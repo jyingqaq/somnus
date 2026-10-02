@@ -102,3 +102,16 @@ body {
 input, textarea, button, select { font-family: inherit; }
 button { border: 0; background: none; padding: 0; color: inherit; cursor: pointer; }
 img { -webkit-user-drag: none; }
+
+/* svg 默认是 inline 元素，会额外占出基线以下的空隙（十几像素的行盒里约 6px），
+   于是图标在自己的容器里整体偏高、和旁边的文字差 3px 对不齐。
+   统一按块级渲染，容器用 flex 居中即可。 */
+svg { display: block; }
+.ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+/* 图标外面再套一层时（.chev 这类），外层也必须是 flex，
+   否则里面那个 inline-flex 仍按行内盒排版，行盒会继续留出基线空隙 */
+.chev { display: inline-flex; align-items: center; }

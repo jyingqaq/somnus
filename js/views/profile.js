@@ -129,6 +129,7 @@ export function render() {
       { label: '世界书', iconName: 'globe', path: '/library/worlds' },
       { label: '灵感', iconName: 'bulb', path: '/library/ideas' },
       { label: '提示词', iconName: 'layers', path: '/prompt' },
+      { label: '备份', iconName: 'upload', path: '/backup' },
       { label: '设置', iconName: 'gear', path: '/settings' }
     ];
 

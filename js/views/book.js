@@ -16,7 +16,7 @@ export function render({ params }) {
   const book = store.get('books', params.id);
   if (!book) return page;
 
-  const barSlot = h('div');
+  const barSlot = h('div', { class: 'bar-slot' });
   const bodySlot = h('div');
   let selecting = false;
   const picked = new Set();

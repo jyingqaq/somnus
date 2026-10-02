@@ -18,7 +18,7 @@ export function render({ params }) {
   const chapter = store.getChapter(params.id, params.cid);
   if (!book || !chapter) return page;
 
-  const barSlot = h('div');
+  const barSlot = h('div', { class: 'bar-slot' });
   const bodySlot = h('div');
   const cmSlot = h('div');
   const area = h('textarea', { class: 'field-area reader-edit', spellcheck: 'false' });

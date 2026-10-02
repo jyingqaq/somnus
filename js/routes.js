@@ -14,6 +14,7 @@ import * as settingsApi from './views/settingsApi.js';
 import * as settingsTheme from './views/settingsTheme.js';
 import * as prompt from './views/prompt.js';
 import * as promptEdit from './views/promptEdit.js';
+import * as backup from './views/backup.js';
 
 define('/home', home);
 define('/creation/:id', creation);
@@ -27,3 +28,4 @@ define('/settings/api', settingsApi);
 define('/settings/theme', settingsTheme);
 define('/prompt', prompt);
 define('/prompt/:kind', promptEdit);
+define('/backup', backup);
