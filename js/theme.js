@@ -32,6 +32,9 @@ function applyColor() {
   root.style.setProperty('--accent-strong', mix(accent, dark ? '#ffffff' : '#000000', 0.16));
   root.style.setProperty('--accent-weak', mix(accent, bg, dark ? 0.78 : 0.88));
   root.style.setProperty('--on-accent', readableOn(accent));
+  // 需要 alpha 的地方（如加号按钮的光晕）靠这个三元组拼 rgba，
+  // 否则样式里写死颜色会不跟着自定义主题色走。
+  root.style.setProperty('--accent-rgb', toRgbTuple(accent));
 
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', bg);

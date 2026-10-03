@@ -20,20 +20,45 @@
  * - 跨域请求：直接放行，不碰缓存。
  */
 
-const VERSION = 'v1';
+/*
+ * 改这里来让已装机的用户拿到新资源： activate 时会清掉所有旧版缓存。
+ *
+ * v3：加号光晕改成跟随主题色（涉及 css/components.css + js/theme.js）。
+ * 老客户端里这两份旧资源是配套缓存的，光晕会一直锁死在紫色；
+ * cache-first 对同源资源不主动换 URL，只能靠换缓存名强制丢弃整份旧壳。
+ *
+ * v4：收藏到书架的命名规则改了（js/store.js + js/views/creation.js + js/views/book.js）——
+ * 首页标题当书名、正文进「第1章」。仅靠后台更新收敛太慢：cache-first 会一直拿旧
+ * creation.js 渲染，用户点收藏看到的还是「书名 = 第一章名」的旧行为，所以换缓存名。
+ *
+ * v5：图标挪进 icons/（index.html + manifest.webmanifest + 本项目 SHELL 三处路径一起改）；
+ * 同轮还改了章节页的改名入口（js/components/topbar.js + js/views/chapter.js + components.css）。
+ * 路径变了，旧壳里那 7 条根目录图标缓存已经没人引用，换缓存名顺手清掉。
+ *
+ * v6：首页输入框的加号展开后，点功能图标不再自动收起（js/components/composeBox.js）——
+ * 只有再点那个 × 才收回，方便连续挑角色 / 世界书 / 灵感。同理只能换缓存名，
+ * 否则已装机用户手里的旧 composeBox.js 还是「点一下就收」的老行为。
+ *
+ * v7：备份改成了「只收文字内容」，恢复时不再动外观与设置
+ * （js/services/backup.js + store.replaceContent + js/views/backup.js），
+ * 并新增云端备份页（js/services/cloud*.js + js/views/backupCloud.js）。
+ * 换缓存名的理由是恢复语义变了：旧壳里的备份页会在恢复后调 applyAppearance() 重下外观，
+ * 而新备份里根本没有外观可恢复 —— 两份混用会出现「恢复一次，外观被清成默认」。
+ */
+const VERSION = 'v10';
 const CACHE = `somnus-${VERSION}`;
 /* 应用壳：与 index.html 实际引用的文件保持一致 */
 const SHELL = [
   './',
   './index.html',
   './manifest.webmanifest',
-  './a783.gif',
-  './a783-32.png',
-  './a783-icon-180.png',
-  './icon-192.png',
-  './icon-512.png',
-  './icon-maskable-192.png',
-  './icon-maskable-512.png',
+  './icons/a783.gif',
+  './icons/icon-32.png',
+  './icons/icon-180.png',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
+  './icons/icon-maskable-192.png',
+  './icons/icon-maskable-512.png',
 
   './css/base.css',
   './css/layout.css',
@@ -62,6 +87,8 @@ const SHELL = [
 
   './js/services/ai.js',
   './js/services/backup.js',
+  './js/services/cloud.js',
+  './js/services/cloudConfig.js',
   './js/services/comment.js',
   './js/services/commentParser.js',
   './js/services/docImport.js',
@@ -73,6 +100,7 @@ const SHELL = [
   './js/util/icons.js',
 
   './js/views/backup.js',
+  './js/views/backupCloud.js',
   './js/views/book.js',
   './js/views/chapter.js',
   './js/views/creation.js',
@@ -136,10 +164,14 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  /* 同源静态资源：cache-first + 后台更新 */
+  /* 同源静态资源：cache-first + 后台更新。
+     后台那一次必须绕开 HTTP 缓存（no-cache = 强制向服务器验证），
+     否则浏览器启发式缓存里的旧响应会被原样写回 SW 缓存 ——
+     看起来是 cache-first + revalidate，实际永远收敛不到新版本，
+     改完样式用户刷新多少次看到的都还是旧的。 */
   event.respondWith(
     caches.match(req).then((cached) => {
-      const network = fetch(req)
+      const network = fetch(req, { cache: 'no-cache' })
         .then((res) => {
           if (res && res.status === 200 && res.type === 'basic') {
             const copy = res.clone();

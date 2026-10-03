@@ -12,8 +12,9 @@ import { back } from '../router.js';
  * @param {boolean} [o.hero] 大标题（仅 left 模式有意义）
  * @param {Array<{icon?:string,text?:string,kind?:string,onClick:Function}>} [o.actions]
  * @param {Function} [o.onBack]
+ * @param {Function} [o.onTitle] 传了就表示标题可点（如章节名改名），会自动加一条虚线提示
  */
-export function topbar({ title = '', back: showBack = false, align = 'left', hero = false, actions = [], onBack }) {
+export function topbar({ title = '', back: showBack = false, align = 'left', hero = false, actions = [], onBack, onTitle }) {
   const bar = h('div', { class: `topbar ${align === 'center' ? 'center' : 'left'}` });
   const left = h('div', { class: 'tb-side tb-left' });
   const right = h('div', { class: 'tb-side tb-right' });
@@ -35,9 +36,16 @@ export function topbar({ title = '', back: showBack = false, align = 'left', her
     right.appendChild(btn);
   });
 
+  // 标题文字套一层 inline span：可点改名时虚线只该贴着文字，
+  // 直接画在 .tb-title 上会拉满整格（它 flex:1，居中模式的中列也是整段宽度）。
+  const titleNode = h('div', {
+    class: `tb-title${hero ? ' hero' : ''}${onTitle ? ' editable' : ''}`
+  }, h('span', { class: 'tb-label', text: title }));
+  if (onTitle) titleNode.addEventListener('click', onTitle);
+
   bar.append(
     left,
-    h('div', { class: `tb-title${hero ? ' hero' : ''}`, text: title }),
+    titleNode,
     right
   );
 

@@ -64,6 +64,7 @@ export function render() {
 
   function loadPreset() {
     const items = store.list('presets').map((p) => ({
+      id: p.id,
       label: p.title,
       sub: fmtTime(p.createdAt),
       icon: 'load',
@@ -73,7 +74,16 @@ export function render() {
         saveDraft();
       }
     }));
-    showSheet({ title: '载入预设', items });
+    showSheet({
+      title: '载入预设',
+      items,
+      // 长按进多选、批量删；面板不重开，删完自己刷新
+      confirmTitle: '删除预设',
+      onDelete: (ids) => {
+        store.remove('presets', ids);
+        toast(`已删除 ${ids.length} 个预设`);
+      }
+    });
   }
 
   const box = createComposeBox({

@@ -1,4 +1,10 @@
-/** 我的 · 备份：导出 / 导入全部数据 */
+/**
+ * 我的 · 备份：导出 / 恢复文字内容
+ *
+ * 备份范围和恢复语义都定义在 services/backup.js + store.replaceContent 里，
+ * 这里只负责选文件、确认、显示统计。本地恢复和云端恢复走的是同一对函数，
+ * 所以两边行为不会有差别。
+ */
 
 import { h, clear, fmtTime } from '../util/dom.js';
 import { icon } from '../util/icons.js';
@@ -11,8 +17,7 @@ import {
   stringifyBackup, backupFileName, parseBackup, summarize, formatSummary,
   byteSize, formatBytes, downloadText, readFileText, MAX_BACKUP_BYTES
 } from '../services/backup.js';
-import { applyAppearance } from '../theme.js';
-import { back } from '../router.js';
+import { back, navigate } from '../router.js';
 
 export function render() {
   const page = h('div', { class: 'page' });
@@ -67,7 +72,7 @@ export function render() {
         ),
         h('div', {
           class: 'bk-note',
-          text: '备份不包含 API 设置，导入后需要自行重新配置。'
+          text: '备份只收文字内容：不含外观 / 主题、头像、API 设置和云端备份设置。'
         })
       ),
       actions: [
@@ -116,9 +121,9 @@ export function render() {
         fact('备份内容', formatSummary(incoming)),
         fact('当前数据', formatSummary(current))
       ),
-      h('div', { class: 'bk-note', text: '覆盖导入：当前数据全部替换为备份内容，含设置、外观和提示词。' }),
-      h('div', { class: 'bk-note', text: '合并导入：只按 id 去重追加书本、创作、角色等内容，设置与外观保持当前不变。' }),
-      h('div', { class: 'bk-note', text: 'API 设置不在备份范围内，导入前后都保持当前不变。' }),
+      h('div', { class: 'bk-note', text: '整份恢复：书、创作、角色、提示词等内容以备份为准，本机的外观、头像、API 和云端设置一概不动。' }),
+      h('div', { class: 'bk-note', text: '合并恢复：只按 id 去重追加书本、创作、角色等内容，一份都不覆盖。' }),
+      h('div', { class: 'bk-note', text: '备份里没有外观和设置这一类东西，所以导入前后它们都保持当前不变。' }),
       parsed.hadApiKey
         ? h('div', { class: 'bk-note', text: '这份备份是旧版本导出的，里面的 API Key 已被自动忽略。' })
         : null,
@@ -129,12 +134,12 @@ export function render() {
 
     const choice = await new Promise((resolve) => {
       openModal({
-        title: '导入数据',
+        title: '恢复数据',
         body,
         actions: [
           { label: '取消', kind: 'plain', onClick: (close) => { resolve(''); close(); } },
-          { label: '合并导入', onClick: (close) => { resolve('merge'); close(); } },
-          { label: '覆盖导入', kind: 'primary', onClick: (close) => { resolve('replace'); close(); } }
+          { label: '合并恢复', onClick: (close) => { resolve('merge'); close(); } },
+          { label: '整份恢复', kind: 'primary', onClick: (close) => { resolve('replace'); close(); } }
         ],
         onClose: () => resolve('')
       });
@@ -143,13 +148,12 @@ export function render() {
 
     if (choice === 'replace') {
       const ok = await showConfirm({
-        title: '确认覆盖',
-        message: '当前所有数据都会被替换掉，这一步无法撤销。',
-        confirmLabel: '确认覆盖'
+        title: '确认整份恢复',
+        message: '本机的书、创作、角色、提示词等内容都会被备份里那份替换掉，这一步无法撤销。外观和设置不受影响。',
+        confirmLabel: '整份恢复'
       });
       if (!ok) return;
-      store.replaceState(parsed.data);
-      applyAppearance(); // 外观/背景可能整套变了，立即重新下发 CSS 变量
+      store.replaceContent(parsed.data);
       toast('已恢复备份');
     } else {
       const added = store.mergeContent(parsed.data);
@@ -161,7 +165,7 @@ export function render() {
 
   async function importFromPaste() {
     const values = await showForm({
-      title: '粘贴导入',
+      title: '粘贴恢复',
       fields: [{
         key: 'text',
         label: '备份内容',
@@ -205,25 +209,35 @@ export function render() {
     slot.appendChild(h('div', { class: 'card' },
       listRow({
         label: '导出全部数据',
-        sub: '生成一个 .json 备份文件，可下载或复制（不含 API 设置）',
+        sub: '生成一个 .json 备份文件，可下载或复制（只含文字内容）',
         iconName: 'load',
         onClick: openExport
       })
     ));
 
-    slot.appendChild(h('div', { class: 'section-title', text: '导入' }));
+    slot.appendChild(h('div', { class: 'section-title', text: '恢复' }));
     slot.appendChild(h('div', { class: 'card' },
       listRow({
-        label: '从文件导入',
+        label: '从文件恢复',
         sub: '选择之前导出的 .json 备份',
         iconName: 'upload',
         onClick: () => fileInput.click()
       }),
       listRow({
-        label: '粘贴导入',
+        label: '粘贴内容恢复',
         sub: '手动粘贴备份内容',
         iconName: 'edit',
         onClick: importFromPaste
+      })
+    ));
+
+    slot.appendChild(h('div', { class: 'section-title', text: '云端' }));
+    slot.appendChild(h('div', { class: 'card' },
+      listRow({
+        label: '云端备份',
+        sub: '传到自己的 GitHub 仓库，换设备时再拉回来',
+        iconName: 'globe',
+        onClick: () => navigate('/backup/cloud')
       })
     ));
 

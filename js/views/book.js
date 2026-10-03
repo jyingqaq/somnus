@@ -41,7 +41,7 @@ export function render({ params }) {
     const values = await showForm({
       title: '续写',
       fields: [
-        { key: 'chapterTitle', label: '章节标题', value: `第${nextNo}章`, required: false },
+        { key: 'chapterTitle', label: '章节标题', value: store.chapterTitle(nextNo), required: false },
         { key: 'direction', label: '剧情走向', type: 'textarea', placeholder: '剧情走向', rows: 5 }
       ],
       submitLabel: '开始创作'
@@ -57,7 +57,7 @@ export function render({ params }) {
     try {
       const text = await ask({ system, user });
       store.addChapter(book.id, {
-        title: values.chapterTitle || `第${nextNo}章`,
+        title: values.chapterTitle || store.chapterTitle(nextNo),
         content: text
       });
       toast('已新增章节');

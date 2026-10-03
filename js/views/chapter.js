@@ -5,7 +5,7 @@ import { icon } from '../util/icons.js';
 import * as store from '../store.js';
 import { topbar } from '../components/topbar.js';
 import { toast } from '../components/toast.js';
-import { showConfirm, openModal } from '../components/modal.js';
+import { showConfirm, showForm, openModal } from '../components/modal.js';
 import { showLoading, hideLoading } from '../components/loading.js';
 import { generateComments } from '../services/comment.js';
 import { back, navigate } from '../router.js';
@@ -263,10 +263,31 @@ export function render({ params }) {
 
   /* ---------------- 正文 ---------------- */
 
-  function draw() {
-    clear(barSlot);
-    clear(bodySlot);
+  /**
+   * 点顶栏的章节名即改名（跟书架里「点书名改名」一套交互）。
+   *
+   * 改完只重画顶栏，不走整页 draw()：正文区可能正处在编辑态（editing），
+   * 整页重画会把 textarea 里还没保存的字冲掉。
+   */
+  async function renameChapter() {
     const fresh = store.getChapter(params.id, params.cid);
+    if (!fresh) return;
+    const values = await showForm({
+      title: '章节名',
+      fields: [{ key: 'title', label: '章节名', value: fresh.title || '', placeholder: '第1章' }],
+      submitLabel: '保存'
+    });
+    if (!values) return;
+    store.updateChapter(params.id, params.cid, { title: values.title });
+    toast('已改名');
+    drawBar();
+  }
+
+  /** 只重画顶栏 */
+  function drawBar() {
+    clear(barSlot);
+    const fresh = store.getChapter(params.id, params.cid);
+    if (!fresh) return;
 
     if (selecting) {
       barSlot.appendChild(topbar({
@@ -285,6 +306,7 @@ export function render({ params }) {
         back: true,
         align: 'center',
         onBack: () => back(`/book/${params.id}`),
+        onTitle: renameChapter,
         actions: [{
           icon: editing ? 'check' : 'edit',
           kind: editing ? 'accent' : '',
@@ -292,6 +314,12 @@ export function render({ params }) {
         }]
       }));
     }
+  }
+
+  function draw() {
+    const fresh = store.getChapter(params.id, params.cid);
+    drawBar();
+    clear(bodySlot);
 
     if (editing) {
       area.value = fresh.content || '';

@@ -1,6 +1,6 @@
 /** 弹窗系统：openModal / showForm / showAlert / showConfirm / showSheet */
 
-import { h } from '../util/dom.js';
+import { h, clear, onLongPress } from '../util/dom.js';
 import { icon } from '../util/icons.js';
 
 const root = () => document.getElementById('modal-root');
@@ -17,9 +17,9 @@ export function closeAllModals() {
 
 /**
  * @param {object} opt
- * @param {string} [opt.title]
+ * @param {string|Node} [opt.title] 传 Node 则原样塞进标题位，调用方可自行改写文字
  * @param {Node} [opt.body]
- * @param {Array} [opt.actions] { label, kind, disabled, onClick(close) }
+ * @param {Array} [opt.actions] { label, kind, disabled, hidden, onClick(close) }
  * @param {boolean} [opt.sheet] 底部面板样式
  * @param {boolean} [opt.dismissable] 点击遮罩是否关闭
  * @param {Function} [opt.onMount] ({ close, card, nodes })
@@ -42,7 +42,7 @@ export function openModal({ title, body, actions = [], sheet = false, dismissabl
 
   if (title) {
     card.appendChild(h('div', { class: 'modal-head' },
-      h('div', { class: 'm-title', text: title }),
+      typeof title === 'string' ? h('div', { class: 'm-title', text: title }) : title,
       h('button', { class: 'm-x', onClick: close }, icon('close', 18))
     ));
   }
@@ -57,6 +57,8 @@ export function openModal({ title, body, actions = [], sheet = false, dismissabl
           onClick: () => (a.onClick ? a.onClick(close) : close())
         });
         if (a.disabled) btn.disabled = true;
+        // 先立成属性，之后调用方能按需 .hidden = true/false 来回切
+        if (a.hidden) btn.hidden = true;
         nodes[i] = btn;
         return btn;
       })
@@ -208,31 +210,126 @@ export function showConfirm({ title, message, confirmLabel = '删除', cancelLab
   });
 }
 
-/** 底部选择面板 */
-export function showSheet({ title, items = [], actions }) {
-  const body = h('div', { class: 'list' });
-  if (!items.length) body.appendChild(h('div', { class: 'empty', text: '暂无内容' }));
+/**
+ * 底部选择面板
+ *
+ * 传了 `onDelete` 就自动带上批量删除：长按任意一项进入多选（这套交互与章节页评论一致 ——
+ * 长按进多选、选中数写标题、取消清空、一条不剩自动退出），点选要删的项，底部换成
+ * 「取消 / 删除」，确认后回调 onDelete(ids)。面板不重开，本地把这批摘掉再重画。
+ *
+ * @param {object} o
+ * @param {string} [o.title]
+ * @param {Array<{id?:string,label:string,sub?:string,icon?:string,right?:boolean,onClick?:Function}>} [o.items]
+ *   批量删除要求每项带 id（getElementById 拿不到，只能靠调用方给）
+ * @param {Array} [o.actions] 自定义底部按钮；批量模式下由本函数接管，传入的会被忽略
+ * @param {string} [o.tip] 底部提示文案，默认「长按可批量删除」（仅批量模式显示）
+ * @param {Function} [o.onDelete] (ids) => void 确认后执行真正的删除（写库）；确认框由这里弹
+ * @param {string} [o.confirmTitle] 确认框标题，默认「删除」
+ */
+export function showSheet({ title = '', items = [], actions, tip, onDelete, confirmTitle = '删除' }) {
+  const batch = typeof onDelete === 'function';
+  const picked = new Set();
+  let selecting = false;
+  let modal = null;
 
-  let modal;
-  items.forEach((it) => {
-    body.appendChild(h('div', {
-      class: 'row',
-      onClick: () => { modal.close(); if (it.onClick) it.onClick(); }
+  const list = h('div', { class: 'list' });
+  const tipNode = batch ? h('div', { class: 'sheet-tip', text: tip || '长按可批量删除' }) : null;
+  // 非批量时 body 就是 .list 本身，跟以前的结构保持一致
+  const body = batch ? h('div', {}, list, tipNode) : list;
+
+  const titleNode = h('div', { class: 'm-title', text: title });
+
+  function rowFor(it) {
+    const on = selecting && picked.has(it.id);
+    const row = h('div', {
+      class: `row${on ? ' picked' : ''}`,
+      onClick: () => {
+        if (selecting) { togglePick(it.id); return; }
+        modal.close();
+        if (it.onClick) it.onClick();
+      }
     },
+      selecting ? h('span', { class: 'pick' }, icon('check', 13)) : null,
       it.icon ? icon(it.icon, 20, 'ico row-ico') : null,
       h('div', { class: 'row-main' },
         h('div', { class: 'row-title', text: it.label }),
         it.sub ? h('div', { class: 'row-sub', text: it.sub }) : null
       ),
-      h('span', { class: 'chev' }, it.right ? '' : icon('chev', 18))
-    ));
-  });
+      // 多选时右箭头没意义了，让位给左侧的勾选圈
+      selecting ? null : h('span', { class: 'chev' }, it.right ? '' : icon('chev', 18))
+    );
+
+    if (batch) onLongPress(row, () => { if (!selecting) enterSelect(it.id); });
+    return row;
+  }
+
+  function syncFoot() {
+    const btn = (i) => (modal && modal.nodes[i]) || null;
+    const off = btn(0); const cancel = btn(1); const del = btn(2);
+    if (off) off.hidden = selecting;
+    if (cancel) cancel.hidden = !selecting;
+    if (del) { del.hidden = !selecting; del.textContent = `删除${picked.size ? ` ${picked.size}` : ''}`; }
+  }
+
+  function draw() {
+    clear(list);
+    if (!items.length) list.appendChild(h('div', { class: 'empty', text: '暂无内容' }));
+    else items.forEach((it) => list.appendChild(rowFor(it)));
+
+    if (!batch) return;
+    titleNode.textContent = selecting ? `已选 ${picked.size}` : title;
+    if (tipNode) tipNode.hidden = selecting || !items.length;
+    syncFoot();
+  }
+
+  function enterSelect(id) {
+    selecting = true;
+    picked.clear();
+    picked.add(id);
+    draw();
+  }
+
+  function togglePick(id) {
+    if (picked.has(id)) picked.delete(id);
+    else picked.add(id);
+    if (!picked.size) selecting = false; // 一条不剩就自动退出多选
+    draw();
+  }
+
+  function exitSelect() {
+    selecting = false;
+    picked.clear();
+    draw();
+  }
+
+  async function deletePicked() {
+    if (!picked.size) return;
+    const ids = [...picked];
+    const ok = await showConfirm({ title: confirmTitle, message: `共 ${ids.length} 个` });
+    if (!ok) return;
+
+    await onDelete(ids);
+
+    // onDelete 只管写库，面板还开着；本地也把这批摘掉，免得看着像没删掉
+    const gone = new Set(ids);
+    items = items.filter((it) => !gone.has(it.id));
+    selecting = false;
+    picked.clear();
+    draw();
+  }
 
   modal = openModal({
-    title,
+    title: title ? titleNode : null,
     body,
     sheet: true,
-    actions: actions || [{ label: '关闭', kind: 'plain', onClick: (close) => close() }]
+    actions: batch
+      ? [
+          { label: '关闭', kind: 'plain', onClick: (close) => close() },
+          { label: '取消', kind: 'plain', hidden: true, onClick: () => exitSelect() },
+          { label: '删除', kind: 'danger', hidden: true, onClick: () => deletePicked() }
+        ]
+      : (actions || [{ label: '关闭', kind: 'plain', onClick: (close) => close() }])
   });
+  draw();
   return modal;
 }

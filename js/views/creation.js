@@ -42,11 +42,8 @@ export function render({ params }) {
             confirmLabel: '收藏'
           });
           if (!ok) return;
-          const book = store.addBook({
-            title: item.title,
-            intro: item.request || '',
-            chapters: [{ title: item.title, content: item.content }]
-          });
+          // 书名 = 创作标题（首页标题输入框那个），正文进第 1 章，章节名固定「第1章」
+          const book = store.addBookFromCreation(item);
           store.update('creations', item.id, { bookId: book.id });
           toast('已加入书架');
           reload();

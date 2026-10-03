@@ -7,8 +7,11 @@ import {
   defaultPromptConfig, upgradePromptConfig, isDataBlock, blockId, VOLATILE_BLOCK,
   makePromptPreset, alignBlocksToKind
 } from './services/promptSchema.js';
+// 备份范围（哪些键属于「文字内容」）由 services/backup.js 定义，
+// 恢复时该替换什么直接引用它，避免导出和恢复各维护一份清单、日后改漏一边。
+import { CONTENT_TOP_KEYS, PROFILE_TEXT_KEYS } from './services/backup.js';
 
-const KEY = 'ai_writer_state_v1';
+const KEY = 'somnus_state_v1';
 
 const LIB_KEYS = ['roles', 'worlds', 'ideas'];
 
@@ -140,6 +143,20 @@ function migrate(s) {
     intro: b.intro || '',
     chapters: normalizeChapters(b.chapters)
   }));
+
+  /*
+   * 老数据修复：收藏来的书，第一章曾被写成和书名同名（当时是拿创作标题同时当书名和章名）。
+   * 书名的位置已经被书名占了，第一章统一叫「第1章」，跟「续写」的默认命名接上。
+   *
+   * 为什么放在迁移里而不是让用户自己改：章节名在界面上没有改名入口（只有书名能点着改），
+   * 老书不改就永远是错的。判定只认「第一章标题与书名一字不差」这个特征 ——
+   * 正是当年那条写入路径留下的指纹，别的章节一律不碰。
+   */
+  s.books.forEach((b) => {
+    const first = (b.chapters || [])[0];
+    if (first && b.title && first.title === b.title) first.title = chapterTitle(1);
+  });
+
   LIB_KEYS.forEach((k) => {
     s[k] = (s[k] || []).map((it) => ({ folderId: '', ...it }));
   });
@@ -478,6 +495,32 @@ export function addBook(data) {
   });
 }
 
+/** 章节默认标题：第 N 章。首章入库、「续写」兜底都走这里，命名只有一套 */
+export function chapterTitle(n) {
+  return `第${n}章`;
+}
+
+/**
+ * 把一条创作收进书架。
+ *
+ * 书名取创作标题 —— 就是首页标题输入框里填的那个，收藏后书架列表里显示的就是它。
+ * 章节名固定「第1章」，**不能**再复用创作标题：标题已经是书名了，再拿它当章节名，
+ * 目录里就是「一本书 + 一个同名的章节」，重复且看不出哪个是书哪个是章。
+ * （后续「续写」默认也是「第2章」「第3章」，首章用「第1章」才接得上。）
+ *
+ * intro 留创作时填的「详细要求」，方便日后回看当初是怎么让它写的。
+ *
+ * @param {{title?:string, request?:string, content?:string}} creation
+ */
+export function addBookFromCreation(creation) {
+  const it = creation || {};
+  return addBook({
+    title: (it.title || '').trim() || '未命名',
+    intro: it.request || '',
+    chapters: [{ title: chapterTitle(1), content: it.content || '' }]
+  });
+}
+
 export function addChapter(bookId, chapter) {
   const book = get('books', bookId);
   if (!book) return null;
@@ -551,8 +594,8 @@ export function snapshot() {
   return structuredClone(state);
 }
 
-/** 合并导入时会被带进来的「内容」类数据 */
-const CONTENT_KEYS = ['books', 'creations', 'presets', 'roles', 'worlds', 'ideas'];
+/** 合并导入时会被追加的「内容」类数据 */
+const MERGE_KEYS = ['books', 'creations', 'presets', 'roles', 'worlds', 'ideas'];
 
 /** 把外来存档规整成和内部一致的结构，再挂到当前 state 上 */
 function adopt(next) {
@@ -560,20 +603,35 @@ function adopt(next) {
 }
 
 /**
- * 整份覆盖：书、创作、角色、外观、提示词等全部以备份为准。
- * 备份里不含 API 配置（见 services/backup.js），所以本机现有的接口设置原样保留，
- * 不会出现「导入一次备份，Key 没了」。
+ * 整份恢复：只把「文字内容」换成本机的，其余一律保持当前值。
+ *
+ * 不在复原范围内的是：外观 / 主题 / 字体 / 背景图、头像（图片）、API 配置与 Key、
+ * 云端备份配置、界面态 —— 换设备恢复备份时，这些本就该用新设备上自己那一份。
+ *
+ * 与 mergeContent 的区别：mergeContent 只按 id 追加、什么都不覆盖；
+ * 这里是内容键整份替换（备份里没有的书就是被删掉的书）。
+ * 配置类的东西（提示词 / 草稿 / 昵称简介之外的资料）在两者中都不参与追加 ——
+ * 它们没有 id 可以「去重追加」，只能整份替换，所以只在 restore 里处理。
  */
-export function replaceState(next) {
-  const keepApi = {
-    settings: state.settings,
-    apiPresets: state.apiPresets,
-    activeApiPreset: state.activeApiPreset
-  };
-  state = adopt(next);
-  state.settings = { ...state.settings, ...structuredClone(keepApi.settings) };
-  state.apiPresets = keepApi.apiPresets;
-  state.activeApiPreset = keepApi.activeApiPreset;
+export function replaceContent(next) {
+  const incoming = adopt(next);
+
+  // 只替换备份里**真的出现过**的键。判定必须用 `k in next` 而不是看 incoming：
+  // adopt() 之后所有键都有值（缺失的会被 DEFAULTS 补成空数组），
+  // 那时已经分不出「备份里没有这一项」和「备份里这一项是空的」了 ——
+  // 而前者绝不该把本机的书清空（粘贴一段只有角色的片段就会踩到）。
+  CONTENT_TOP_KEYS.forEach((k) => {
+    if (next && k in next) state[k] = incoming[k];
+  });
+
+  // 昵称 / 简介按备份走，头像（图片）保留本机那份
+  const p = next && next.profile;
+  if (p && typeof p === 'object') {
+    const patch = {};
+    PROFILE_TEXT_KEYS.forEach((k) => { if (k in p) patch[k] = p[k]; });
+    if (Object.keys(patch).length) state.profile = { ...state.profile, ...patch };
+  }
+
   emit();
 }
 
@@ -588,7 +646,7 @@ export function mergeContent(next) {
   const base = state;
   let added = 0;
 
-  CONTENT_KEYS.forEach((key) => {
+  MERGE_KEYS.forEach((key) => {
     const have = new Set((base[key] || []).map((it) => it && it.id));
     const extra = (incoming[key] || []).filter((it) => it && it.id && !have.has(it.id));
     if (extra.length) {

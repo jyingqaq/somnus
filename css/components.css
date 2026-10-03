@@ -36,6 +36,17 @@
 }
 .topbar .tb-title.hero { font-size: calc(23px * var(--fs)); font-weight: 750; letter-spacing: .2px; }
 
+/* 可点改名的标题（目前只有章节名）。标题看着和普通标题一样，不给点提示没人会去点它，
+   所以在文字底下垫一条细虚线。虚线必须画在 .tb-label 这个 inline span 上才贴着文字 ——
+   画在 .tb-title 上会拉满整格（它 flex:1，居中模式的中列也是整段宽度）。
+   还给 .tb-title 加了 padding：光靠文字那二十来像素高的盒子当热区太小，手指容易点空。 */
+.topbar .tb-title.editable { cursor: pointer; padding: 8px 6px; }
+.topbar .tb-title.editable .tb-label {
+  border-bottom: 1px dashed var(--dim);
+  padding-bottom: 1px;
+}
+.topbar .tb-title.editable:active .tb-label { border-bottom-color: var(--accent); }
+
 /* 居中模式改用三栏 grid：左右各 1fr 等宽，标题不受按钮数量影响，真正居中 */
 .topbar.center { display: grid; grid-template-columns: 1fr auto 1fr; }
 .topbar.center .tb-left { justify-self: start; }
@@ -322,10 +333,14 @@
   background: var(--accent);
   color: var(--on-accent);
   display: grid; place-items: center;
-  box-shadow: 0 6px 20px rgba(91, 91, 214, .38);
+  /* 光晕跟着主题色走，别写死颜色 */
+  box-shadow: 0 6px 20px rgba(var(--accent-rgb), .34);
   transition: transform .14s;
 }
 .fab:active { transform: scale(.93); }
+
+/* 深色底上同样的 alpha 视觉上更淡，补一点回来 */
+:root[data-theme="dark"] .fab { box-shadow: 0 6px 22px rgba(var(--accent-rgb), .42); }
 
 /* ================= 头像 / 个人资料 ================= */
 .avatar {
@@ -430,6 +445,13 @@
   padding: 14px 16px calc(16px + var(--safe-b) * .4);
 }
 .modal-foot .btn { flex: 1; }
+/*
+ * 隐藏的底部按钮得自己声明 display:none ——
+ * 上面的 .btn 写了 display:inline-flex，作者样式压过 UA 的 [hidden]{display:none}，
+ * 光设 hidden 属性在真机上根本不生效（单测的 DOM 替身没有 CSS，抓不到这个）。
+ * 批量删除模式就是靠 hidden 在「关闭」和「取消/删除」之间切换的。
+ */
+.modal-foot .btn[hidden] { display: none; }
 
 /* 底部选择面板 */
 .modal-root.sheet .modal-wrap { align-items: flex-end; padding: 0; }
@@ -440,6 +462,15 @@
   animation: slideUp .24s cubic-bezier(.2, .9, .3, 1);
 }
 .modal-root.sheet .modal-foot { padding-bottom: calc(16px + var(--safe-b)); }
+
+/* 底部面板里的批量删除提示：平时点一下就好，想批量删得先知道能长按 */
+.sheet-tip {
+  padding: 10px 2px 2px;
+  text-align: center;
+  font-size: calc(12.5px * var(--fs));
+  color: var(--dim);
+}
+.sheet-tip[hidden] { display: none; }
 
 .alert-msg { font-size: calc(14.5px * var(--fs)); line-height: 1.65; color: var(--dim); padding: 2px 0 12px; word-break: break-word; }
 

@@ -112,7 +112,10 @@ export function initPwa() {
   else if (mq.addListener) mq.addListener(onModeChange);
 
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch(() => {
+    // updateViaCache: 'none' —— 做更新检查时别用 HTTP 缓存里的 sw.js。
+    // 否则发了新版本（sw.js 里 VERSION 换名）也可能被浏览器压着不生效，
+    // 用户就一直停在旧的壳和旧的样式表上。
+    navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).catch(() => {
       // file:// 下必然失败，属于预期情况，不打扰用户
     });
   });

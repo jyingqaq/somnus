@@ -21,6 +21,9 @@ body { margin: 0; }
   --accent-strong: #4a4ab8;
   --accent-weak: #ececff;
   --on-accent: #ffffff;
+  /* 主题色的 RGB 三元组，供需要 alpha 的地方拼 rgba 用。
+     运行时由 theme.js 按实际 accent 下发，这里是 JS 未执行时的兜底。 */
+  --accent-rgb: 91, 91, 214;
 
   --danger: #e5484d;
   --danger-weak: #fdeceb;
@@ -64,6 +67,9 @@ body { margin: 0; }
   --text: #f1f1f5;
   --dim: #8b8b97;
   --line: #2b2b34;
+
+  /* 深色下的默认主题色比浅色更亮，RGB 兜底值也要跟着变 */
+  --accent-rgb: 143, 143, 247;
 
   --danger: #ff6b6b;
   --danger-weak: #2b1c1e;

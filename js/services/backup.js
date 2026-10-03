@@ -1,47 +1,67 @@
 /**
- * 数据备份：整份存档的打包格式、导入校验与内容统计。
+ * 数据备份：打包格式、导入校验与内容统计。
+ * 本地导出文件和云端备份共用这一套 —— 必须是同一个格式，
+ * 否则「云端备份下来的文件」没法用「从文件导入」恢复。
  *
- * 备份一律不含 API 配置（主接口、评论专用接口、API 预设）——
- * 备份文件是要传来传去的，Key 不跟着走；换设备后自行在设置里填一次即可。
+ * 备份范围是**白名单**：只收承载文字内容的键（见 CONTENT_TOP_KEYS）。
+ * 图片（头像、背景图、字体文件）、外观 / 主题、API 配置、云端备份配置都不进备份 ——
+ * 备份文件是要传来传去的，Key 不能跟着走；换设备后自行在设置里填一次即可。
  *
- * 除了最下面的 downloadText()（要碰 DOM）之外全是纯函数，
+ * 为什么写成白名单而不是「排除清单」：将来 state 上新增字段时，默认就是「不进备份」。
+ * 漏补一条排除规则的代价是密钥或图片悄悄进了备份文件，
+ * 漏补一条白名单的代价只是新字段暂时没被备份 —— 两种错法，后者便宜得多。
+ *
+ * 除了最下面的 downloadText() / readFileText()（要碰 DOM）之外全是纯函数，
  * 可以脱离浏览器直接跑用例验证。
  */
 
-export const BACKUP_APP = 'ai-writer';
-export const BACKUP_VERSION = 1;
+export const BACKUP_APP = 'somnus';
+/** 2：备份范围从「整份存档减掉 API」改成「只收文字内容」 */
+export const BACKUP_VERSION = 2;
 
 /** 单个备份文件的体积上限，防止手滑选中一个巨大的无关文件把标签页卡死 */
 export const MAX_BACKUP_BYTES = 32 * 1024 * 1024;
 
-/** 判定「这确实是一份本应用的存档」时看的键 */
-const FINGERPRINT_KEYS = [
+/**
+ * 备份收哪些顶层键。
+ * store.js 的 replaceContent() 也引用这份清单来决定「恢复时替换什么」——
+ * 两处必须是同一个常量，否则会出现「导出漏了一个键、恢复却按旧清单覆盖」的错配。
+ */
+export const CONTENT_TOP_KEYS = [
   'books', 'creations', 'presets', 'roles', 'worlds', 'ideas',
-  'prompt', 'settings', 'profile', 'appearance', 'folders'
+  'folders', 'prompt', 'promptPresets', 'draft'
 ];
 
-/** settings 里属于 API 配置的字段 */
-const API_SETTING_KEYS = ['apiBase', 'apiKey', 'model', 'temperature', 'maxTokens', 'commentApi'];
+/** profile 里属于文字的部分；头像（图片）不在其中 */
+export const PROFILE_TEXT_KEYS = ['nickname', 'bio'];
 
-/** 顶层属于 API 配置的字段 */
-const API_TOP_KEYS = ['apiPresets', 'activeApiPreset'];
+/**
+ * 判定「这确实是一份本应用的存档」时看的键。
+ * 仍然认 settings / appearance：v1 的老备份是整份存档，靠这几个键才认得出。
+ */
+const FINGERPRINT_KEYS = [...CONTENT_TOP_KEYS, 'settings', 'profile', 'appearance'];
 
 /* ---------------- 导出 ---------------- */
 
 /**
- * 抹掉存档里的 API 配置：settings 下的接口字段（连同 commentApi）、
- * 以及顶层的 apiPresets / activeApiPreset。
- * 导出和导入都过这一道，Key 就不进备份文件了。
+ * 从任意存档里挑出该备份的部分，返回新对象（不改原对象）。
+ *
+ * 导出和导入都过这一道：导出时保证只有内容进文件；导入时顺手把老备份里的
+ * API 配置、外观、头像丢掉 —— 不用为旧格式另写一条清洗路径，
+ * 「备份格式升级」这件事就只剩一个函数要改。
  */
-export function stripApiConfig(data) {
+export function pickContent(data) {
   if (!data || typeof data !== 'object') return {};
-  const out = { ...data };
-  if (out.settings && typeof out.settings === 'object') {
-    const s = { ...out.settings };
-    API_SETTING_KEYS.forEach((k) => { delete s[k]; });
-    out.settings = s;
+  const src = structuredClone(data);
+  const out = {};
+  CONTENT_TOP_KEYS.forEach((k) => { if (k in src) out[k] = src[k]; });
+
+  const p = src.profile;
+  if (p && typeof p === 'object') {
+    const kept = {};
+    PROFILE_TEXT_KEYS.forEach((k) => { if (k in p) kept[k] = p[k]; });
+    if (Object.keys(kept).length) out.profile = kept;
   }
-  API_TOP_KEYS.forEach((k) => { delete out[k]; });
   return out;
 }
 
@@ -50,7 +70,7 @@ export function buildBackup(state) {
     app: BACKUP_APP,
     version: BACKUP_VERSION,
     exportedAt: Date.now(),
-    data: stripApiConfig(state)
+    data: pickContent(state)
   };
 }
 
@@ -58,12 +78,12 @@ export function stringifyBackup(state) {
   return JSON.stringify(buildBackup(state), null, 2);
 }
 
-/** ai-writer-backup-20261002-1900.json */
+/** somnus-backup-20261002-1900.json */
 export function backupFileName(date = new Date()) {
   const p = (n) => String(n).padStart(2, '0');
   const stamp = `${date.getFullYear()}${p(date.getMonth() + 1)}${p(date.getDate())}`
     + `-${p(date.getHours())}${p(date.getMinutes())}`;
-  return `ai-writer-backup-${stamp}.json`;
+  return `somnus-backup-${stamp}.json`;
 }
 
 /* ---------------- 导入 ---------------- */
@@ -72,7 +92,8 @@ export function backupFileName(date = new Date()) {
  * 把文本解析成存档对象。不合法就抛带人话说明的错误，调用方直接 toast 出去。
  * 兼容两种写法：带 { app, version, data } 外壳的正式备份，
  * 以及直接把 state 对象存下来的文件。
- * 返回的 data 已经去掉 API 配置 —— 就算拿到旧版本带 Key 的备份也不会写进来。
+ * 返回的 data 已经过 pickContent()：只留文字内容，
+ * 所以哪怕是 v1 那种「整份存档带 Key 带外观」的老备份，也不会把 Key / 外观写进来。
  * @returns {{data:object, exportedAt:number, version:number, hadApiKey:boolean}}
  */
 export function parseBackup(text) {
@@ -105,7 +126,7 @@ export function parseBackup(text) {
   const hadApiKey = hasApiKey(raw0);
 
   return {
-    data: stripApiConfig(raw0),
+    data: pickContent(raw0),
     hadApiKey,
     exportedAt: Number(parsed.exportedAt) || 0,
     version: Number(parsed.version) || 0

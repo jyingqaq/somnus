@@ -1,6 +1,7 @@
 /**
  * 输入框外壳：
- * - 左上角加号，点击后变 ×，右侧依次展开功能图标；再点收回
+ * - 左上角加号，点击后变 ×，右侧依次展开功能图标
+ * - 功能图标点完**不**收起面板，只有再点左上角 × 才收回（方便连续挑角色 / 世界书）
  * - 右上角全屏键，点击把整个输入框搬到全屏层；全屏时同一位置变成退出全屏
  */
 
@@ -34,7 +35,9 @@ export function createComposeBox({ editor, actions = [] }) {
       class: 'cb-btn cb-item',
       title: a.label,
       'aria-label': a.label,
-      onClick: () => { setOpen(false); a.onClick(); }
+      // 点功能图标不收起面板：只有再点加号（×）才收回
+      // 这样连续挑角色 / 世界书 / 灵感时不用反复展开
+      onClick: () => a.onClick()
     }, icon(a.icon, 18, 'ico')))
   );
 

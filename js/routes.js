@@ -15,6 +15,7 @@ import * as settingsTheme from './views/settingsTheme.js';
 import * as prompt from './views/prompt.js';
 import * as promptEdit from './views/promptEdit.js';
 import * as backup from './views/backup.js';
+import * as backupCloud from './views/backupCloud.js';
 
 define('/home', home);
 define('/creation/:id', creation);
@@ -29,3 +30,4 @@ define('/settings/theme', settingsTheme);
 define('/prompt', prompt);
 define('/prompt/:kind', promptEdit);
 define('/backup', backup);
+define('/backup/cloud', backupCloud);
