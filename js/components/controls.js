@@ -37,7 +37,8 @@ export function slider(o) {
 
 /** 颜色选择行 */
 export function colorRow({ label, value, onInput, onReset }) {
-  const picker = h('input', { type: 'color', value: value || '#5b5bd6' });
+  // value 是「当前生效的颜色」，调用方负责传入（默认色随明暗主题变，组件不猜）
+  const picker = h('input', { type: 'color', value: value || '#000000' });
   picker.addEventListener('input', () => onInput(picker.value));
 
   const reset = h('button', { class: 'btn sm plain', text: '默认', onClick: () => onReset && onReset() });

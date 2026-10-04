@@ -7,7 +7,8 @@ import { getState } from './store.js';
 import { mix, readableOn, toRgbTuple, hexToRgb } from './util/color.js';
 
 const BASE_BG = { light: '#f3f3f6', dark: '#0e0e11' };
-const DEFAULT_ACCENT = { light: '#5b5bd6', dark: '#8f8ff7' };
+/* 默认主题色。深色下必须是浅色（反之同理）—— 深色背景上放深色 accent 会直接看不见。 */
+const DEFAULT_ACCENT = { light: '#000000', dark: '#ffffff' };
 
 const mq = window.matchMedia('(prefers-color-scheme: dark)');
 const fontCache = new Map();
@@ -17,6 +18,15 @@ function isDark() {
   return pref === 'dark' || (pref === 'system' && mq.matches);
 }
 
+/**
+ * 当前主题下的默认主题色。
+ * 界面（颜色选择器）要展示「没自定义时实际用的是哪个色」，必须走这个函数，
+ * 不能自己写死 —— 默认色是随明暗切换的一对。
+ */
+export function defaultAccent() {
+  return DEFAULT_ACCENT[isDark() ? 'dark' : 'light'];
+}
+
 /* ---------------- 主题 + 主题色 ---------------- */
 
 function applyColor() {
@@ -24,7 +34,7 @@ function applyColor() {
   const dark = isDark();
   const bg = BASE_BG[dark ? 'dark' : 'light'];
   const custom = getState().appearance.accent;
-  const accent = hexToRgb(custom) ? custom : DEFAULT_ACCENT[dark ? 'dark' : 'light'];
+  const accent = hexToRgb(custom) ? custom : defaultAccent();
 
   root.dataset.theme = dark ? 'dark' : 'light';
   root.style.setProperty('--bg-rgb', toRgbTuple(bg));

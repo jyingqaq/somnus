@@ -6,7 +6,7 @@ import { topbar } from '../components/topbar.js';
 import { showSheet } from '../components/modal.js';
 import { slider, colorRow, listRow } from '../components/controls.js';
 import { back } from '../router.js';
-import { applyAppearance } from '../theme.js';
+import { applyAppearance, defaultAccent } from '../theme.js';
 import { openBackgroundPanel } from '../panels/background.js';
 import { openFontPanel } from '../panels/fonts.js';
 
@@ -52,7 +52,8 @@ export function render() {
       }),
       colorRow({
         label: '主题色',
-        value: ap.accent || '#5b5bd6',
+        // 没自定义时展示当前主题的默认色（浅色黑 / 深色白），别写死
+        value: ap.accent || defaultAccent(),
         onInput: (v) => {
           store.patchAppearance({ accent: v });
           applyAppearance();

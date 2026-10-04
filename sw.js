@@ -44,8 +44,12 @@
  * 并新增云端备份页（js/services/cloud*.js + js/views/backupCloud.js）。
  * 换缓存名的理由是恢复语义变了：旧壳里的备份页会在恢复后调 applyAppearance() 重下外观，
  * 而新备份里根本没有外观可恢复 —— 两份混用会出现「恢复一次，外观被清成默认」。
+ *
+ * v11：没配 API 时不再先进「创作中」（新增 js/components/apiGate.js，
+ * 首页生成 / 续写 / 拉评论三处都在 showLoading 之前先拦一次）。
+ * 换缓存名的理由同 v6：已装机用户手里那份旧 views/home.js 点下去还是会转一圈再报 401。
  */
-const VERSION = 'v10';
+const VERSION = 'v12';
 const CACHE = `somnus-${VERSION}`;
 /* 应用壳：与 index.html 实际引用的文件保持一致 */
 const SHELL = [
@@ -71,6 +75,7 @@ const SHELL = [
   './js/theme.js',
   './js/pwa.js',
 
+  './js/components/apiGate.js',
   './js/components/composeBox.js',
   './js/components/controls.js',
   './js/components/dropdown.js',

@@ -16,14 +16,17 @@ body { margin: 0; }
   --dim: #8a8a95;
   --line: #e7e7ee;
 
-  /* 主题色（可被外观设置覆盖） */
-  --accent: #5b5bd6;
-  --accent-strong: #4a4ab8;
-  --accent-weak: #ececff;
+  /* 主题色（可被外观设置覆盖）。默认是「墨黑」，
+     下面这一组必须与 theme.js 里 DEFAULT_ACCENT + 派生计算的结果一致：
+     accent-strong = mix(accent, #000000, .16)、accent-weak = mix(accent, --bg, .88)、
+     on-accent = readableOn(accent)。不一致的话 JS 未执行时会闪一下别的颜色。 */
+  --accent: #000000;
+  --accent-strong: #000000;
+  --accent-weak: #d6d6d8;
   --on-accent: #ffffff;
   /* 主题色的 RGB 三元组，供需要 alpha 的地方拼 rgba 用。
      运行时由 theme.js 按实际 accent 下发，这里是 JS 未执行时的兜底。 */
-  --accent-rgb: 91, 91, 214;
+  --accent-rgb: 0, 0, 0;
 
   --danger: #e5484d;
   --danger-weak: #fdeceb;
@@ -68,8 +71,12 @@ body { margin: 0; }
   --dim: #8b8b97;
   --line: #2b2b34;
 
-  /* 深色下的默认主题色比浅色更亮，RGB 兜底值也要跟着变 */
-  --accent-rgb: 143, 143, 247;
+  /* 深色下的默认主题色是白色（深底上放黑色会看不见），四个派生值 + RGB 兜底值都要跟着换 */
+  --accent: #ffffff;
+  --accent-strong: #d6d6d6;
+  --accent-weak: #434345;
+  --on-accent: #12121a;
+  --accent-rgb: 255, 255, 255;
 
   --danger: #ff6b6b;
   --danger-weak: #2b1c1e;

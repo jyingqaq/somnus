@@ -13,9 +13,28 @@ export function configOf(scope) {
   return scope === 'comment' ? resolveCommentApi() : getState().settings;
 }
 
+/**
+ * 「什么算配好了」全项目只有这一处定义：**地址和 Key 都得有**。
+ *
+ * 为什么要这么严：默认的 apiBase 是有值的（https://api.openai.com/v1），
+ * 所以只看地址的话，一个刚装上、什么都还没填的用户也算「配好了」——
+ * 于是界面会先挂出「创作中」，再发一个注定 401 的请求，转一圈才报错。
+ *
+ * 本地不需要鉴权的服务（Ollama / LM Studio 之类）在 Key 里随便填一个
+ * 占位字符串即可，换来的是「没配」这件事在界面上分得清楚。
+ *
+ * @returns {string} 没问题返回空串，否则返回一句能直接给用户看的话
+ */
+export function apiProblem(scope) {
+  const s = configOf(scope);
+  if (!(s.apiBase || '').trim()) return '还没填 API 地址';
+  if (!(s.apiKey || '').trim()) return '还没填 API Key';
+  return '';
+}
+
 function endpoint(cfg) {
   const base = (cfg.apiBase || '').trim().replace(/\/+$/, '');
-  if (!base) throw new Error('未配置 API 地址');
+  if (!base) throw new Error('还没填 API 地址');
   return base + '/chat/completions';
 }
 
@@ -26,6 +45,10 @@ function endpoint(cfg) {
  */
 export async function chat(messages, opt = {}) {
   const s = configOf(opt.scope);
+  // 兜底：任何调用方漏了「先判一次」，这里也不许发出注定失败的请求
+  const problem = apiProblem(opt.scope);
+  if (problem) throw new Error(problem);
+
   const body = {
     model: s.model || 'gpt-4o-mini',
     messages,
@@ -60,7 +83,7 @@ export async function chat(messages, opt = {}) {
 export async function listModels(override) {
   const s = { ...getState().settings, ...(override || {}) };
   const base = (s.apiBase || '').trim().replace(/\/+$/, '');
-  if (!base) throw new Error('未配置 API 地址');
+  if (!base) throw new Error('还没填 API 地址');
 
   const headers = {};
   if (s.apiKey) headers.Authorization = 'Bearer ' + s.apiKey;
@@ -95,8 +118,8 @@ export function ask({ system, user }, opt) {
  */
 export async function testConnection(scope) {
   const s = configOf(scope);
-  if (!(s.apiBase || '').trim()) throw new Error('未配置 API 地址');
-  if (!(s.apiKey || '').trim()) throw new Error('未配置 API Key');
+  const problem = apiProblem(scope);
+  if (problem) throw new Error(problem);
 
   const headers = { 'Content-Type': 'application/json' };
   headers.Authorization = 'Bearer ' + s.apiKey;

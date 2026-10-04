@@ -5,11 +5,22 @@ import { icon } from '../util/icons.js';
 import * as store from '../store.js';
 import { topbar } from '../components/topbar.js';
 import { showForm, showConfirm } from '../components/modal.js';
-import { showLoading, hideLoading } from '../components/loading.js';
+import { createBusyButton } from '../components/loading.js';
 import { toast } from '../components/toast.js';
 import { buildContinuePrompt } from '../services/prompt.js';
 import { ask } from '../services/ai.js';
+import { requireApi } from '../components/apiGate.js';
 import { navigate, back } from '../router.js';
+
+/**
+ * 「续写」按钮的忙态：等待期间按钮自己变成不可点的「创作中……」，
+ * 不再盖全屏遮罩 —— 用户可以去别的页面干别的，不必盯着转圈。
+ * 模块级单例的理由同 home.js：等待中离开再回来，按钮是重新渲染出来的新节点。
+ */
+const continueBusy = createBusyButton('续写');
+
+/** 当前挂载的那份书页的刷新入口（完成时刷的应该是「现在这份」，见 home.js 的同一套理由） */
+let mounted = null;
 
 export function render({ params }) {
   const page = h('div', { class: 'page' });
@@ -36,6 +47,9 @@ export function render({ params }) {
 
   /* ---------- 续写 ---------- */
   async function continueWrite() {
+    if (continueBusy.busy) return;
+    // 先拦一次：没配接口就别让人白填一遍剧情走向（也省得进「创作中」）
+    if (!requireApi()) return;
     const current = store.get('books', book.id);
     const nextNo = (current.chapters || []).length + 1;
     const values = await showForm({
@@ -53,7 +67,7 @@ export function render({ params }) {
       direction: values.direction
     });
 
-    showLoading('创作中');
+    continueBusy.start();
     try {
       const text = await ask({ system, user });
       store.addChapter(book.id, {
@@ -61,11 +75,13 @@ export function render({ params }) {
         content: text
       });
       toast('已新增章节');
-      draw();
+      // 刷「现在挂载」的那份：用户可能在等待中离开这本书又回来，闭包里那份已经不在 DOM 上
+      if (mounted) mounted.draw();
+      else draw();
     } catch (e) {
       toast(e.message || '创作失败');
     } finally {
-      hideLoading();
+      continueBusy.done();
     }
   }
 
@@ -166,14 +182,17 @@ export function render({ params }) {
 
     /* 续写 */
     if (!selecting) {
-      bodySlot.appendChild(h('button', {
-        class: 'btn primary block',
-        onClick: continueWrite
-      }, icon('spark', 19), h('span', { text: '续写' })));
+      // 按 class 找得到、文案单独放一个 span：忙态要换的是这段文字，图标得留着
+      const label = h('span', { text: '续写' });
+      const btn = h('button', { class: 'btn primary block', onClick: continueWrite },
+        icon('spark', 19), label);
+      continueBusy.attach(btn, label);
+      bodySlot.appendChild(btn);
     }
   }
 
   page.append(barSlot, bodySlot);
   draw();
+  mounted = { draw };
   return page;
 }

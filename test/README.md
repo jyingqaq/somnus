@@ -9,6 +9,7 @@ C:/Users/玥/.workbuddy/binaries/python/versions/3.13.12/python.exe make-sample-
 # 2) 跑用例
 node docImport.test.mjs
 node commentApi.test.mjs
+node apiGate.test.mjs
 node settingsApi.render.test.mjs
 node backup.test.mjs
 node cloudBackup.test.mjs
@@ -47,13 +48,120 @@ node startCmd.test.mjs
 这两个用例直接 `import` 真实的 `store.js`，所以文件开头塞了 `localStorage` 替身；
 测旧存档时用 `import('../js/store.js?legacy=1')` 换 query 强制模块重新执行，走真实 `load()`。
 
+**`apiGate.test.mjs`** 守两条线：「没配 API 就别进创作中」+「生成中按钮自己变忙态」。
+
+起因：首页点「生成剧情」时 `showLoading('创作中')` 挂在发请求之前，而**默认的 apiBase 本来就带着值**
+（`https://api.openai.com/v1`），所以一个什么都没填的用户也会真的发一个注定 401 的请求 ——
+先转一圈「创作中」，再收到一条看不懂的「请求失败 401 …」。
+判定规则收在 `services/ai.js` 的 `apiProblem()`（**地址和 Key 都得有**），
+拦截在 `components/apiGate.js` 的 `requireApi()`；首页生成 / 续写 / 拉评论三处
+都必须**在进入等待态之前**调它（首页现在是「先 `requireApi()`，再 `createBusy.start()`」）。
+
+这条路径的等待态后来从「全屏遮罩」改成了**按钮自己的忙态**（见下面「生成中不再盖全屏」一节），
+所以用例里原先盯 `.loading` 的断言改成了盯按钮：文案是不是「创作中……」、`disabled` 是不是 true。
+
+四条断言都验过「有没有牙」（都是把实现改坏跑出来的）：
+
+- **`chat()` 没配好时一个请求都不发**（哪怕调用方忘了先判）。把 `ai.js` 里那段兜底删掉，
+  这条立刻红 —— 实测 FAIL「没有发出任何请求」。
+- **点下去的那一刻界面上没有 `.loading`**。这条必须**同步**读：忙态是在第一个 `await`
+  之前切的，等 `await sleep(0)` 之后它已经收干净，「闪一下又收掉」根本抓不住。
+  把 `home.js` 里的 `if (!requireApi()) return;` 删掉，实测这条报 `got 1 want 0`。
+- **没配好时按钮不许卡在「创作中……」**。这是同一个顺序的守卫：`createBusy.start()`
+  要是写在 `requireApi()` 前面，用户会先看到「创作中……」，然后**永远停在那儿**
+  —— 这条短路路径没有 `finally` 去还原。
+- **切走再回来，忙态得跟过去**：把 `render()` 里的 `createBusy.attach(createBtn)` 删掉，
+  实测 7 条红。**用户等待期间新写的字不能被回包冲掉**：把 `mounted.snapshot() === snapshot`
+  改成无条件清空，实测 2 条红。
+
+DOM 替身按 `creationBook.test.mjs` 那份抄，但多补了两处，少一处会当场炸：
+
+- **`innerHTML` 要真的解析出子节点**。`loading.js` 是先把
+  `<div class="spin"></div><div class="txt"></div>` 塞进 `innerHTML`、再 `querySelector('.txt')`
+  写文字的；只存字符串的话 `node.querySelector` 直接报 not a function。
+  替身里放了个只认标签和属性的极简解析（原串仍留给 `innerHTML` 读回）。
+- **`querySelector` 至少得认 `.class`**（loading 就是这么找文字节点的）。
+- **纯文本只落在 `childNodes`** 这条老坑照旧：`El.textContent` 挑的是 `children` 那条路，
+  有子元素时返回拼接、没有子元素时返回 `_text` —— 所以断言弹窗正文里有没有某句话，
+  得用自己写的 `textOf()` 递归读 `childNodes`。
+
+## 生成中不再盖全屏遮罩（按钮内联忙态）
+
+用户提的：点「生成剧情」后不该弹全屏等待界面，应该让**按钮自己**变成不可点的「创作中……」，
+这样等待期间他还能去别的页面干别的，而不是盯着转圈发呆。后来三处 AI 入口都统一成这个做法：
+
+| 入口 | 忙态文案 | 位置 |
+|---|---|---|
+| 首页「生成剧情」 | 创作中…… | `views/home.js`（`.btn.primary`） |
+| 书籍「续写」 | 创作中…… | `views/book.js`（书页底部那颗 `.btn.primary`） |
+| 章节「获取评论」 | 生成中 | `views/chapter.js`（`.cm-get`，文案本来就有，缺的只是别再盖遮罩） |
+
+公用件与样式：
+
+| 位置 | 做了什么 |
+|---|---|
+| `components/loading.js` | 新增 `createBusyButton(idleText, busyText)`，返回 `{ attach, start, done, busy, node }` |
+| `views/home.js` · `book.js` · `chapter.js` | 不再用 `showLoading` / `hideLoading`，改用忙态控制器；模块级单例 + `mounted` 收尾引用 |
+| `css/components.css` | `.btn.is-busy`（转圈 `::before` + 淡度 `.62`）、`.cm-get.is-busy`（小一号的圈）、`.is-busy .ico { display:none }` |
+
+**四处不写注释就会踩的地方：**
+
+1. **控制器必须是模块级单例，且每次 `render()` / `draw()` 都要 `attach()`。**
+   用户很可能在等待中离开再**回来** —— 回来时视图重新渲染、生成的是一个**新**按钮，
+   而回调闭包里的那个早就被摘掉了 DOM。只认闭包里那颗按钮的话，切回来按钮就又能点了
+   （首页那条 DOM 替身用例里有 7 条断言盯着它；真浏览器里三处各验了一遍）。
+2. **`attach(btn, labelEl)` 的第二个参数是文案节点，缺省才是按钮自己。**
+   「续写」「获取评论」都是 `icon + span` 结构，直接写 `btn.textContent` 会把图标一起抹掉。
+   忙态下原来那颗图标靠 `.is-busy .ico { display: none }` 藏起来、统一用转圈表达 ——
+   这条规则同样有用例盯着（删掉它精确红 2 条）。
+3. **收尾要对着「当前挂载」的那一份做，首页还要判断用户有没有动过。**
+   生成成功是把输入框清空、草稿清掉。但用户可能在等待中回来接着写下一篇 ——
+   那样直接清就是**把他刚写的字冲掉**。所以 `views/home.js` 里存了 `mounted`，
+   只有 `mounted.snapshot() === 提交时的那份` 才清。
+   `book.js` / `chapter.js` 也各存了一份 `mounted`，用来把「新增的章节 / 新评论」刷到
+   **现在挂着**的那份视图上（刷错了那份，用户得再进一次这个页面才看得到结果）。
+4. **章节那份忙态是跨章节共享的**：A 章在生成评论时，切到 B 章按钮也是「生成中」。
+   这是刻意的取舍 —— 换来「同一时刻只有一条评论生成请求」，也堵住了
+   「切走再回来、per-instance 标志已经重置、再点一次就是同一条评论生成两遍」这条路。
+   它原来就是视图内的 `generating` 变量，改成模块级单例正是为了这个。
+
+CSS 那边有个顺序坑：`.btn.is-busy` 必须写在 `.btn[disabled]` **之后** ——
+两者权重相同（0,2,0），靠书写顺序取胜，否则忙态会和普通禁用按钮一样只剩 `.45` 的淡度。
+`.cm-get.is-busy` 只补转圈、**不覆盖** `opacity`（`.5` 和 `.62` 肉眼分不出来），
+所以它没有这个顺序要求，就近放在 `.cm-get[disabled]` 下面即可。
+
+**`verify-inline-busy.mjs`** 连 `8791` + CDP `9341`（和 `verify-api-gate.mjs` 一套），62 项，
+出四张图（`shot-create-busy.png` / `shot-create-busy-done.png` / `shot-continue-busy.png` /
+`shot-comment-busy.png`）。三处**各切走一次再切回原页**，断言按钮仍然是忙的。
+
+替身测不到、只有真浏览器能验的几条：按钮 `disabled` 之后**真的点不动**（再点一次
+`__fetchCalls` 不涨）、`.is-busy` 的 `::before` 真的挂着 `rot` 动画、忙态淡度确实是 `0.62`
+而不是被 `.btn[disabled]` 的 `.45` 抢走、忙态下原图标真的藏了；以及**整段时间里 `.loading`
+一次都没出现过**（MutationObserver 数出现次数，闪一下也算）。
+
+> 写这个脚本时自己踩的两个坑：
+> **一是假 `fetch` 的延迟别压着流程卡** —— 第一版给 1.4 秒，而中途要切页、截图、再切回来，
+> 回来时请求早跑完了，白红两条，看着像功能坏了。现在延迟 4 秒 + 轮询 `waitFor()` 等结束。
+> **二是别在读 `opacity` 时踩到 CSS 过渡** —— `.btn` 上有 `transition: opacity .12s`，
+> 点下去那一瞬间读会拿到 `0.620158` 这样的中间值，「忙态淡度是 .62」那条就偶发变红。
+> 现在先 `settledOpacity()` 把过渡等过去（220ms）再读，比较时留 0.01 容差。
+
 **`themeColor.test.mjs`** 扫主题色一致性。这个 bug 的教训是：`.fab` 的光晕曾写死
-`rgba(91, 91, 214, .38)`（正好是浅色 `--accent: #5b5bd6` 的 rgb 形态），
+`rgba(91, 91, 214, .38)`（正好是**当时**浅色默认色 `--accent: #5b5bd6` 的 rgb 形态），
 换主题色 / 切深色后光晕不跟着变，肉眼才看得出来，断言完全测不到。
 所以这里做的是**全量扫描**：`css/*.css` 里凡是 rgb 形态等于 `#5b5bd6` 或 `#8f8ff7` 的
 `rgba()` 一律视为可疑，同时断言 `.fab` 的光晕必须走 `var(--accent-rgb)`。
 需要 alpha 的地方统一用 `rgba(var(--accent-rgb), .34)` —— 项目里已有 `--bg-rgb`
 这个先例，`theme.js` 里的 `toRgbTuple()` 也现成，别再写死颜色。
+
+> 默认主题色后来从紫改成了**浅色黑 `#000000` / 深色白 `#ffffff`**。这意味着
+> 「rgb 等于默认色」不再是可靠的判据（黑白在阴影里到处都有），所以上面那条扫描
+> 退化成**历史紫色残留**的守卫，主力防线变成 `verify-fab-glow.mjs` 的 computed style 比对。
+> 改默认色要一次改全 4 处：`theme.js` 的 `DEFAULT_ACCENT`、`base.css` 的
+> 浅色与深色两块兜底（连 `--accent-strong` / `--accent-weak` / `--on-accent`
+> 都要按 theme.js 的算式算出来）、设置页取默认色走 `defaultAccent()`。
+> 漏改只会在「另一个主题」或「JS 还没跑起来」的一瞬间错色，肉眼基本抓不到 ——
+> 所以这些断言是必需的，别嫌碎。
 
 **`settingsApi.render.test.mjs`** 用最小 DOM 替身跑真实的 `settingsApi.render()`，
 验证设置页结构：开关关闭时评论字段确实被折叠、开启时字段与「当前生效」文案正确、
@@ -190,6 +298,8 @@ node verify-fab-glow.mjs      # 浏览器：加号光晕跟随主题色，21 项
 node verify-sheet-batch.mjs   # 浏览器：载入预设长按批量删除，37 项，顺带出两张图（服务 8791 + CDP 9341）
 node verify-compose-open.mjs  # 浏览器：加号展开后点功能图标不收起，47 项，顺带出两张图（服务 8791 + CDP 9341）
 node verify-creation-book.mjs # 浏览器：收藏到书架的命名 + 老存档迁移，15 项，顺带出一张图（服务 8791 + CDP 9341）
+node verify-api-gate.mjs      # 浏览器：没配 API 时不进「创作中」而是弹设置入口，19 项，顺带出一张图（服务 8791 + CDP 9341）
+node verify-inline-busy.mjs   # 浏览器：三处 AI 入口的按钮忙态 + 等待期可切页，62 项，顺带出四张图（服务 8791 + CDP 9341）
 node verify-chapter-rename.mjs # 浏览器：点章节名改名 + 虚线提示，18 项，顺带出两张图（服务 8777 + CDP 9333）
 node verify-cloud-backup.mjs  # 浏览器：云端备份上传/恢复 + 恢复不动外观，62 项，顺带出三张图（服务 8823 + CDP 9363）
 node shot-fab-glow.mjs        # 出图：浅色/自定义橙/深色三张，肉眼比对
@@ -228,6 +338,22 @@ node shot-fab-glow.mjs        # 出图：浅色/自定义橙/深色三张，肉�
 **必须 `Page.reload()`**，不能只 `Page.navigate` 到带 hash 的地址 —— 只改 hash 属于同文档导航，
 页面不会重新执行模块，`load()` 也就读不到刚塞进去的存档，表现是「断言读到的是播种前那份空 state」
 （书的目录空白、星标按钮找不到），很容易误判成功能坏了。
+
+**`verify-api-gate.mjs`** 连 `8791` + CDP `9341`（和 `verify-creation-book.mjs` 同一套端口），
+在真浏览器里验「没配 API 时点生成剧情不进创作中」。它比 DOM 替身那条 `apiGate.test.mjs` 多守两处：
+
+- **loading 用 `MutationObserver` 数整段时间里出现过几次**，而不是同步读某一刻 ——
+  用户看到的「闪一下的创作中」就是这么抓的，断言写成「整段时间里一次都没出现」。
+- **「去设置」走真实 hash 路由**：点完断言 `location.hash === '#/settings/api'` 且弹窗已关掉。
+
+顺带把**配好之后**那条路也跑了一遍：在设置页真的往 Key 输入框写值并派发 `change`
+（走真实的 `patchSettings`），再把 `window.fetch` 换成假的（免得真打 `api.openai.com`），
+回首页点生成 —— 断言这次 loading 确实出现过、正文被 trim、创作条目 +1。
+
+> 假 fetch 要返回**真的 `Response` 对象**（`new Response(JSON.stringify(…), { status: 200 })`），
+> 因为 `ai.js` 里读的是 `res.ok` / `res.json()`，返回个普通对象会当场炸。
+> 另外这两个后台进程（http.server 与 Chrome）用工具的后台任务方式起，
+> 不要写成 `(... &)` —— 那样会跟着当前命令一起结束，接下来就 `ECONNREFUSED`。
 
 **`verify-cloud-backup.mjs`** 验云端备份：未连接 / 已连接两种页面形态、点入口进得去、
 「立即备份」的确认框与真的 PUT 上去、以及**整份恢复之后外观到底动没动**。
@@ -343,7 +469,7 @@ del.hidden = !selecting;
 - **hidden 属性压不过作者样式的 display**。底部按钮切「关闭 ↔ 取消/删除」只设了 `hidden`，
   真机上三个按钮一起亮着 —— `.btn { display: inline-flex }` 盖掉了 UA 的
   `[hidden] { display: none }`。DOM 替身没有 CSS，测不出来。详见上面单独一节。
-- **样式里别写死主题色**。`.fab` 的光晕曾是 `rgba(91, 91, 214, .38)` ——  正好是浅色 `--accent: #5b5bd6` 的 rgb 形态，所以**浅色下完全看不出来**，
+- **样式里别写死主题色**。`.fab` 的光晕曾是 `rgba(91, 91, 214, .38)` ——  正好是当时浅色默认色（`#5b5bd6`）的 rgb 形态，所以**浅色下完全看不出来**，
   一换主题色或切深色就露馅。需要 alpha 的地方用
   `rgba(var(--accent-rgb), .34)`，`theme.js` 里的 `toRgbTuple()` 现成。
   `themeColor.test.mjs` 会全量扫描 `css/*.css`，把这类写死的颜色揪出来。
@@ -370,9 +496,9 @@ del.hidden = !selecting;
   造不出「拿不到事件」的真实条件（UA 覆盖也没用，事件在首次加载时就派发完了）。
   与其跟环境较劲，不如把状态判定拆出来做纯单测。
 - **CDP 脚本里读 computed style 要归一化**。`boxShadow` 读回来是
-  `rgba(91, 91, 214, 0.34) 0px 6px 20px 0px`，取 rgb 要用正则截 `rgba(...)`
+  `rgba(0, 0, 0, 0.34) 0px 6px 20px 0px`（默认色改成黑之后的形态），取 rgb 要用正则截 `rgba(...)`
   再去掉 alpha 分量；比色时两边都要 `replace(/\s/g,'')`，
-  否则 `rgb(91, 91, 214)` 和 `rgb(91,91,214)` 会误判为不等。
+  否则 `rgb(0, 0, 0)` 和 `rgb(0,0,0)` 会误判为不等。
 - **`start.cmd` / `push.cmd` 必须存成 GBK，注释里不能放中文**。cmd.exe 按当前代码页逐字节读批处理文件，
   `chcp 65001` + UTF-8 会让多字节中文字符把行首的 `rem`/`echo` 前缀吞掉，于是注释和长提示的
   碎片被当命令跑 —— 实测 9 处 `'xxx' is not recognized`，换 `GBK + chcp 936` 后 0 处。

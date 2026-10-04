@@ -109,7 +109,7 @@ await sleep(2600);
   const rgb3 = (s) => String(s).replace(/\s/g, '').split(',').slice(0, 3).join(',');
   ok('深色：主题已切到 dark', r.theme === 'dark', r.theme);
   ok('深色：光晕用的是深色 accent 三元组', rgb3(r.shadowRgb) === rgb3(r.accentRgb), `shadow=${r.shadowRgb} accent=${r.accentRgb}`);
-  ok('深色：accent 变亮了', r.accentRgb.replace(/\s/g, '') === '143,143,247', r.accentRgb);
+  ok('深色：accent 取的是深色默认色（白）', r.accentRgb.replace(/\s/g, '') === '255,255,255', r.accentRgb);
   ok('深色：光晕透明度比浅色更高', /0\.42/.test(r.shadow), r.shadow);
   console.log(`        theme=${r.theme} accent=${r.accent} rgb=(${r.accentRgb}) shadow=${r.shadow}`);
 }

@@ -138,6 +138,25 @@
 .btn.sm { height: 38px; font-size: calc(14px * var(--fs)); border-radius: 11px; padding: 0 15px; }
 .btn:active { transform: scale(.985); }
 .btn[disabled] { opacity: .45; }
+/*
+ * 按钮内联忙态（首页「生成剧情」/ 书籍「续写」）：等待期间不盖全屏遮罩，改成按钮自己转个圈。
+ * 必须写在 .btn[disabled] 之后 —— 两者权重相同，靠顺序压过那个 .45 的淡度，
+ * 否则「正在创作」会比普通禁用按钮还难看清。
+ */
+.btn.is-busy { opacity: .62; cursor: default; }
+.btn.is-busy::before {
+  content: "";
+  flex: none;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  opacity: .75;
+  animation: rot .7s linear infinite;
+}
+/* 忙态一律用转圈表达，把按钮本来那颗图标藏掉（「续写」「获取评论」都带 icon） */
+.btn.is-busy .ico,
+.cm-get.is-busy .ico { display: none; }
 
 /* ================= 表单控件 ================= */
 .field {
@@ -809,6 +828,21 @@ html.sort-lock { user-select: none; -webkit-user-select: none; }
 }
 .cm-get:active { transform: scale(.96); }
 .cm-get[disabled] { opacity: .5; }
+/*
+ * 「获取评论」的忙态：只补一个转圈，淡度沿用上面 [disabled] 的 .5（不再覆盖 opacity）。
+ * 它比 .btn 小一号，圈也跟着小。`.is-busy .ico` 那条规则在最上面的按钮区。
+ */
+.cm-get.is-busy { cursor: default; }
+.cm-get.is-busy::before {
+  content: "";
+  flex: none;
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  border: 1.8px solid currentColor;
+  border-top-color: transparent;
+  opacity: .75;
+  animation: rot .7s linear infinite;
+}
 
 /* 装饰性分割线 */
 .cm-hr { height: 1px; background: var(--line); }

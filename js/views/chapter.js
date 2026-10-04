@@ -6,11 +6,27 @@ import * as store from '../store.js';
 import { topbar } from '../components/topbar.js';
 import { toast } from '../components/toast.js';
 import { showConfirm, showForm, openModal } from '../components/modal.js';
-import { showLoading, hideLoading } from '../components/loading.js';
+import { createBusyButton } from '../components/loading.js';
 import { generateComments } from '../services/comment.js';
-import { back, navigate } from '../router.js';
+import { requireApi } from '../components/apiGate.js';
+import { back } from '../router.js';
 
 const MAX_INPUT_H = 110;
+
+/**
+ * 「获取评论」按钮的忙态：等待期间按钮自己变成不可点的「生成中」，不再盖全屏遮罩 ——
+ * 用户可以去别的页面干别的，不必盯着转圈。
+ *
+ * 这份忙态原本是视图内的 `generating` 变量，改成模块级单例是为了「离开再回来」：
+ * 那时按钮是重新渲染出来的新节点，per-instance 的变量在新实例里是 false，
+ * 按钮又能点了 —— 再点一下就是**同一条评论生成两遍**。
+ * 顺带它现在也跨章节共享：A 章在生成时，B 章的按钮同样是「生成中」，
+ * 换来的是「同一时刻只有一条评论生成请求」，这个取舍是刻意的。
+ */
+const commentBusy = createBusyButton('获取评论', '生成中');
+
+/** 当前挂载的那份章节页的刷新入口（完成时刷的应该是「现在这份」，见 home.js 的同一套理由） */
+let mounted = null;
 
 export function render({ params }) {
   const page = h('div', { class: 'page' });
@@ -25,7 +41,6 @@ export function render({ params }) {
 
   let editing = false;
   let selecting = false;
-  let generating = false;
   let picked = new Set();
   let inView = false;
   let observer = null;
@@ -61,7 +76,7 @@ export function render({ params }) {
 
   function sync() {
     const { text } = parseReply(input.value);
-    sendBtn.disabled = !text || generating;
+    sendBtn.disabled = !text || commentBusy.busy;
     // 编辑正文或批量选评论时把底栏收起来，避免挡住操作
     bar.classList.toggle('show', !editing && !selecting && (inView || !!input.value.trim()));
   }
@@ -77,7 +92,7 @@ export function render({ params }) {
 
   function submit() {
     const { replyTo: at, text } = parseReply(input.value);
-    if (!text || generating) return;
+    if (!text || commentBusy.busy) return;
     const nickname = (store.getState().profile.nickname || '').trim();
     store.addComment(params.id, params.cid, { name: nickname || '我', replyTo: at, text });
     input.value = '';
@@ -137,36 +152,20 @@ export function render({ params }) {
     });
   }
 
-  /** 接口没配好时，给一个直达设置的入口，而不是只弹一句报错 */
-  function showNoApi() {
-    openModal({
-      title: '还没有可用的接口',
-      body: h('div', { class: 'alert-msg' },
-        '拉取评论需要一个可用的 API 地址和 Key。如果想让它和正文续写用不同的模型，可以到「设置 → API」里单独配置一套评论接口。'),
-      actions: [
-        { label: '取消', kind: 'plain', onClick: (close) => close() },
-        { label: '去设置', kind: 'primary', onClick: (close) => { close(); navigate('/settings/api'); } }
-      ]
-    });
-  }
-
   async function fetchComments() {
-    if (generating) return;
+    if (commentBusy.busy) return;
 
-    // 提前拦一次，省得白等一个网络往返
-    const cfg = store.resolveCommentApi();
-    if (!(cfg.apiBase || '').trim() || !(cfg.apiKey || '').trim()) {
-      showNoApi();
-      return;
-    }
+    // 提前拦一次，省得白等一个网络往返（弹窗里带「去设置」）
+    if (!requireApi('comment', {
+      message: '拉取评论需要一个可用的 API 地址和 Key。如果想让它和正文续写用不同的模型，可以到「设置 → API」里单独配置一套评论接口。'
+    })) return;
 
-    generating = true;
+    commentBusy.start();
     renderComments();
 
     const fresh = store.getChapter(params.id, params.cid);
     const freshBook = store.get('books', params.id);
 
-    showLoading(cfg.fromCommentApi ? '生成评论（专用接口）' : '生成评论');
     try {
       const { raw, list } = await generateComments({
         book: freshBook,
@@ -182,9 +181,10 @@ export function render({ params }) {
     } catch (e) {
       toast(e.message || '生成失败');
     } finally {
-      generating = false;
-      hideLoading();
-      renderComments();
+      commentBusy.done();
+      // 刷「现在挂载」的那份：用户可能在等待中离开这一章又回来，闭包里那份已经不在 DOM 上
+      if (mounted) mounted.comments();
+      else renderComments();
     }
   }
 
@@ -229,14 +229,13 @@ export function render({ params }) {
     const fresh = store.getChapter(params.id, params.cid);
     const list = (fresh && fresh.comments) || [];
 
-    const getBtn = h('button', {
-      class: 'cm-get',
-      disabled: generating,
-      onClick: fetchComments
-    },
+    // 按 class 找得到、文案单独放一个 span：忙态要换的是这段文字，spark 图标得留着
+    const label = h('span', { text: '获取评论' });
+    const getBtn = h('button', { class: 'cm-get', onClick: fetchComments },
       icon('spark', 15),
-      h('span', { text: generating ? '生成中' : '获取评论' })
+      label
     );
+    commentBusy.attach(getBtn, label);
 
     const section = h('div', { class: 'cm-section' },
       h('div', { class: 'cm-head' },
@@ -251,7 +250,7 @@ export function render({ params }) {
     } else {
       section.appendChild(h('div', {
         class: 'cm-empty',
-        text: generating ? '正在生成评论…' : '还没有评论'
+        text: commentBusy.busy ? '正在生成评论…' : '还没有评论'
       }));
     }
     section.appendChild(h('div', { class: 'cm-tail' }));
@@ -352,6 +351,7 @@ export function render({ params }) {
   grow();
   // 挂载后再量一次，避免首次量到 0
   requestAnimationFrame(grow);
+  mounted = { comments: renderComments };
 
   return page;
 }
