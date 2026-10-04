@@ -4,6 +4,7 @@ import { h, clear } from '../util/dom.js';
 import { icon } from '../util/icons.js';
 import * as store from '../store.js';
 import { topbar } from '../components/topbar.js';
+import { folderRow, itemRow } from '../components/collectionList.js';
 import { showForm, showConfirm, showSheet } from '../components/modal.js';
 import { toast } from '../components/toast.js';
 import { DOC_ACCEPT, readDocFiles, joinDocs, formatCount } from '../services/docImport.js';
@@ -203,35 +204,24 @@ export function render({ params }) {
     /* 根目录才显示文件夹 */
     if (!current) {
       folders.forEach((f) => {
-        const count = store.list(meta.key).filter((it) => it.folderId === f.id).length;
-        list.appendChild(h('div', {
-          class: 'folder-row',
-          onClick: () => { folderId = f.id; draw(); }
-        },
-          icon('layers', 20, 'ico icon-folder'),
-          h('div', { class: 'fo-main' },
-            h('div', { class: 'fo-name', text: f.name }),
-            h('div', { class: 'fo-count', text: `${count} 项` })
-          ),
-          h('button', {
-            class: 'fo-op',
-            onClick: (e) => { e.stopPropagation(); folderMenu(f); }
-          }, icon('edit', 18))
-        ));
+        list.appendChild(folderRow({
+          name: f.name,
+          count: store.itemsIn(meta.key, f.id).length,
+          onClick: () => { folderId = f.id; draw(); },
+          onMenu: () => folderMenu(f)
+        }));
       });
     }
 
     /* 条目 */
     const items = store.itemsIn(meta.key, current ? current.id : '');
     items.forEach((it) => {
-      list.appendChild(h('div', { class: 'row', onClick: () => editItem(it) },
-        icon(meta.icon, 20, 'ico row-ico'),
-        h('div', { class: 'row-main' },
-          h('div', { class: 'row-title', text: it.title }),
-          h('div', { class: 'row-sub', text: (it.detail || '').slice(0, 30) })
-        ),
-        h('span', { class: 'chev' }, icon('chev', 18))
-      ));
+      list.appendChild(itemRow({
+        iconName: meta.icon,
+        title: it.title,
+        sub: (it.detail || '').slice(0, 30),
+        onClick: () => editItem(it)
+      }));
     });
 
     if (!list.childNodes.length) {

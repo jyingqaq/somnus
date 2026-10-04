@@ -7,6 +7,7 @@ import { createEditor } from '../components/editor.js';
 import { createComposeBox } from '../components/composeBox.js';
 import { showForm, showSheet, showAlert } from '../components/modal.js';
 import { createBusyButton } from '../components/loading.js';
+import { pickCollection } from '../components/collectionPicker.js';
 import { toast } from '../components/toast.js';
 import { buildCreatePrompt } from '../services/prompt.js';
 import { ask } from '../services/ai.js';
@@ -52,16 +53,15 @@ export function render() {
   editor.el.addEventListener('input', saveDraft);
 
   /* ---------- 功能：角色 / 世界书 / 灵感 / 保存 / 载入 ---------- */
-  function pickCollection(type) {
-    const meta = store.COLLECTIONS[type];
-    const items = store.list(meta.key).map((it) => ({
-      label: it.title,
-      sub: (it.detail || '').slice(0, 24),
-      icon: meta.icon,
-      onClick: () => editor.insertChip(type, it.title)
-    }));
-    showSheet({ title: meta.label, items });
-  }
+  /*
+   * 挑角色 / 世界书 / 灵感的面板走 components/collectionPicker.js ——
+   * 它和「我的」页里的管理页共用同一套文件夹分组（根目录先文件夹，进去只列该文件夹的条目），
+   * 不能再在这里 store.list() 全量平铺。
+   */
+  const pick = (type) => pickCollection({
+    type,
+    onPick: (it) => editor.insertChip(type, it.title)
+  });
 
   async function savePreset() {
     const values = await showForm({
@@ -105,9 +105,9 @@ export function render() {
   const box = createComposeBox({
     editor,
     actions: [
-      { key: 'role', label: '角色', icon: 'person', onClick: () => pickCollection('role') },
-      { key: 'world', label: '世界书', icon: 'globe', onClick: () => pickCollection('world') },
-      { key: 'idea', label: '灵感', icon: 'bulb', onClick: () => pickCollection('idea') },
+      { key: 'role', label: '角色', icon: 'person', onClick: () => pick('role') },
+      { key: 'world', label: '世界书', icon: 'globe', onClick: () => pick('world') },
+      { key: 'idea', label: '灵感', icon: 'bulb', onClick: () => pick('idea') },
       { key: 'save', label: '保存', icon: 'save', onClick: savePreset },
       { key: 'load', label: '载入', icon: 'load', onClick: loadPreset }
     ]

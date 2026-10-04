@@ -165,7 +165,7 @@ export function render() {
 
       const COPY = {
         native: {
-          sub: '安装后可从桌面直接打开，断网也能用',
+          sub: '安装后可从桌面直接打开',
           act: null            // 弹浏览器原生安装框
         },
         ios: {

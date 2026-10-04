@@ -493,6 +493,47 @@
 
 .alert-msg { font-size: calc(14.5px * var(--fs)); line-height: 1.65; color: var(--dim); padding: 2px 0 12px; word-break: break-word; }
 
+/* ================= 更新说明 / 更新日志 ================= */
+/* 弹窗（js/services/updateNotice.js）与「设置 → 更新日志」页（views/settingsUpdates.js）
+   共用同一份结构，只有外层容器的内边距不同，所以两处都写在这里。 */
+.un-item { padding: 2px 0 10px; }
+.un-item + .un-item { margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--line); }
+.un-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.un-title { font-size: calc(14.5px * var(--fs)); font-weight: 600; }
+/* 日期靠右：标题长短不一时，日期列仍然是对齐的 */
+.un-date { font-size: calc(12px * var(--fs)); color: var(--dim); margin-left: auto; flex: none; }
+.un-tag {
+  font-size: calc(11px * var(--fs));
+  font-weight: 600;
+  color: var(--on-accent);
+  background: var(--accent);
+  border-radius: 999px;
+  padding: 1px 7px;
+  flex: none;
+}
+.un-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 7px; }
+.un-list li {
+  position: relative;
+  padding-left: 15px;
+  font-size: calc(13.5px * var(--fs));
+  line-height: 1.6;
+  color: var(--dim);
+}
+/* 圆点小到一定程度就没法用 —— 用 ::before 画，免得正文里混进字符 */
+.un-list li::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: .62em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+/* 日志页：卡片里的每条自己带内边距，与 .row 的观感保持一致 */
+.card > .un-item { padding: 14px; }
+.card > .un-item + .un-item { margin-top: 0; padding-top: 14px; }
+
 .form { display: flex; flex-direction: column; gap: 14px; padding-bottom: 8px; }
 .form-row { display: flex; flex-direction: column; gap: 7px; }
 .card > .form-row + .form-row { border-top: 1px solid var(--line); }
@@ -660,6 +701,9 @@ input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 9px; }
 .folder-row .fo-count { font-size: calc(12.5px * var(--fs)); color: var(--dim); margin-top: 2px; }
 .folder-row .fo-op { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: var(--dim); flex: none; }
 .folder-row .fo-op:active { background: var(--surface-3); }
+/* 选取面板里文件夹行右侧的箭头。没有这条会继承正文色 —— 比旁边条目行的箭头（.row .chev 是 dim）重，
+   同一个列表里两种深浅看着就不像一套东西。 */
+.folder-row .chev { color: var(--dim); flex: none; }
 .icon-folder { color: var(--c-idea); }
 
 .crumb {

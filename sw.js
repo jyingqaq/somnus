@@ -48,8 +48,19 @@
  * v11：没配 API 时不再先进「创作中」（新增 js/components/apiGate.js，
  * 首页生成 / 续写 / 拉评论三处都在 showLoading 之前先拦一次）。
  * 换缓存名的理由同 v6：已装机用户手里那份旧 views/home.js 点下去还是会转一圈再报 401。
+ *
+ * v13：首页输入框挑角色 / 世界书 / 灵感时也走文件夹分组了
+ * （新增 js/components/collectionPicker.js + collectionList.js，
+ * 选取面板与管理页共用同一套行结构）。换缓存名的理由同 v6：
+ * 旧壳里的 home.js 点「角色」还是把全部条目平铺出来，看不到文件夹。
+ *
+ * v14：新增「更新提示」——打开应用时若有没看过的更新会弹一次说明，点「已阅」不再出现
+ * （新增 js/changelog.js + js/services/updateNotice.js + js/views/settingsUpdates.js，
+ * 改动 js/app.js · js/components/modal.js · js/views/settings.js · css/components.css）。
+ * 换缓存名同 v6：这份更新日志本身就要靠新壳发到用户手里，而且旧壳里的 modal.js
+ * 没有 closable 选项 —— 混用会出现「× 还在、点掉不算已阅、下次又弹」。
  */
-const VERSION = 'v12';
+const VERSION = 'v15';
 const CACHE = `somnus-${VERSION}`;
 /* 应用壳：与 index.html 实际引用的文件保持一致 */
 const SHELL = [
@@ -69,6 +80,7 @@ const SHELL = [
   './css/components.css',
 
   './js/app.js',
+  './js/changelog.js',
   './js/router.js',
   './js/routes.js',
   './js/store.js',
@@ -76,6 +88,8 @@ const SHELL = [
   './js/pwa.js',
 
   './js/components/apiGate.js',
+  './js/components/collectionList.js',
+  './js/components/collectionPicker.js',
   './js/components/composeBox.js',
   './js/components/controls.js',
   './js/components/dropdown.js',
@@ -99,6 +113,7 @@ const SHELL = [
   './js/services/docImport.js',
   './js/services/prompt.js',
   './js/services/promptSchema.js',
+  './js/services/updateNotice.js',
 
   './js/util/color.js',
   './js/util/dom.js',
@@ -117,6 +132,7 @@ const SHELL = [
   './js/views/settings.js',
   './js/views/settingsApi.js',
   './js/views/settingsTheme.js',
+  './js/views/settingsUpdates.js',
   './js/views/shelf.js'
 ];
 

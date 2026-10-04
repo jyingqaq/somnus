@@ -22,10 +22,12 @@ export function closeAllModals() {
  * @param {Array} [opt.actions] { label, kind, disabled, hidden, onClick(close) }
  * @param {boolean} [opt.sheet] 底部面板样式
  * @param {boolean} [opt.dismissable] 点击遮罩是否关闭
+ * @param {boolean} [opt.closable] 是否显示右上角的 ×（配合 dismissable:false 表示
+ *   「只能走底部按钮」，更新说明弹窗就靠它保证「只能点『已阅』」）
  * @param {Function} [opt.onMount] ({ close, card, nodes })
  * @param {Function} [opt.onClose]
  */
-export function openModal({ title, body, actions = [], sheet = false, dismissable = true, onMount, onClose }) {
+export function openModal({ title, body, actions = [], sheet = false, dismissable = true, closable = true, onMount, onClose }) {
   const wrap = h('div', { class: 'modal-root' + (sheet ? ' sheet' : '') });
   const backdrop = h('div', { class: 'modal-backdrop' });
   const card = h('div', { class: 'modal-card' });
@@ -43,7 +45,7 @@ export function openModal({ title, body, actions = [], sheet = false, dismissabl
   if (title) {
     card.appendChild(h('div', { class: 'modal-head' },
       typeof title === 'string' ? h('div', { class: 'm-title', text: title }) : title,
-      h('button', { class: 'm-x', onClick: close }, icon('close', 18))
+      closable ? h('button', { class: 'm-x', onClick: close }, icon('close', 18)) : null
     ));
   }
   if (body) card.appendChild(h('div', { class: 'modal-body' }, body));

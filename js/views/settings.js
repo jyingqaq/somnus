@@ -5,6 +5,7 @@ import * as store from '../store.js';
 import { topbar } from '../components/topbar.js';
 import { listRow } from '../components/controls.js';
 import { back, navigate } from '../router.js';
+import { latestUpdate, updateSummary } from '../services/updateNotice.js';
 
 const THEMES = { system: '跟随系统', light: '浅色', dark: '深色' };
 
@@ -32,6 +33,16 @@ export function render() {
         iconName: 'spark',
         sub: THEMES[ap.theme || 'system'],
         onClick: () => navigate('/settings/theme')
+      })
+    ),
+    h('div', { class: 'sec-gap' }),
+    h('div', { class: 'card' },
+      listRow({
+        label: '更新日志',
+        iconName: 'refresh',
+        // 副标题显示最新那一版的「日期 · 标题」，打开设置就知道自己落在哪一版
+        sub: updateSummary(latestUpdate()),
+        onClick: () => navigate('/settings/updates')
       })
     )
   );

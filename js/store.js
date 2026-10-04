@@ -74,8 +74,12 @@ const DEFAULTS = {
     comment: []
   },
 
-  /** 界面上的临时状态：跟着用户操作走，切页 / 重开都不丢 */
-  ui: { composeOpen: false },
+  /**
+   * 界面上的临时状态：跟着用户操作走，切页 / 重开都不丢。
+   * lastSeenUpdate 记「已阅到哪一版更新」，属界面态 —— 不进备份、不跟云端走，
+   * 每台设备各自弹一次新版本说明。
+   */
+  ui: { composeOpen: false, lastSeenUpdate: '' },
 
   profile: { avatar: '', nickname: '', bio: '' },
 

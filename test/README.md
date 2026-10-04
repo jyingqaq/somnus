@@ -17,8 +17,10 @@ node promptPreset.test.mjs
 node promptEdit.render.test.mjs
 node themeColor.test.mjs
 node sheetBatch.test.mjs
+node collectionPicker.test.mjs
 node creationBook.test.mjs
 node chapterRename.test.mjs
+node updateNotice.test.mjs
 node startCmd.test.mjs
 ```
 
@@ -242,6 +244,9 @@ DOM 替身比 `settingsApi` 那份多补了几个：菜单要挂 `document.body`
 **注意**：这份用例碰不到 CSS。`hidden` 属性藏按钮这件事**只有真浏览器能验** ——
 见下面「用 hidden 藏不住设了 display 的元素」。
 
+**`collectionPicker.test.mjs`** 守首页输入框那三个入口（角色 / 世界书 / 灵感）的文件夹分组，
+跑的是**真实的** `views/home.js` 与 `views/library.js`。详见下面「首页挑条目也要走文件夹」一节。
+
 **`creationBook.test.mjs`** 守「收藏到书架」的命名：**首页标题输入框里填的那个名字是书名**，
 正文进第 1 章、章节名固定「第1章」。曾出过的错是拿创作标题同时当书名和第一章名 ——
 打开书看到「一本书 + 一个同名的章节」，跟后续「续写」默认的「第2章」「第3章」也接不上。
@@ -272,6 +277,39 @@ DOM 替身比 `settingsApi` 那份多补了几个：菜单要挂 `document.body`
 另外顶栏标题改成 `div.tb-title > span.tb-label` 的结构了（虚线得靠 inline span 才贴着文字），
 `h()` 的 `text` 和样式都不受影响，但以后要断言标题文字记得取 `.tb-label`。
 
+## 更新提示（告诉用户「这次改了什么」）
+
+需求：给作者一个写更新内容的地方；用户进入应用时有改动就弹窗告知，**每次更新只弹一次**，附「已阅」。
+
+| 位置 | 做什么 |
+|---|---|
+| `js/changelog.js` | **写更新内容的地方**，纯数据（`id` / `date` / `title` / `items`） |
+| `js/services/updateNotice.js` | 未读判定 + 弹窗；`updateItem()` 被弹窗和日志页共用 |
+| `js/views/settingsUpdates.js` | 设置 → 更新日志（弹窗只弹一次，历史在这里回看） |
+| `js/app.js` | 启动后 `setTimeout(showUpdateNoticeIfAny, 300)` |
+| `js/components/modal.js` | 新增 `closable`；配 `dismissable:false` = 只能走底部按钮 |
+| `state.ui.lastSeenUpdate` | 「已阅到哪一版」，界面态 → 不进备份、不跨设备 |
+
+四条要记住的：
+
+1. **更新日志必须跟着代码发布，不能写进 localStorage**。写进去只有本机看得见，
+   「告知用户改了什么」这件事就落不了地。加一条更新 = 在 `CHANGELOG` **最前面**插一项
+   + 换个新 `id` + 双击 `push.cmd`（它自动把 `sw.js` 的 VERSION 加一）。
+2. **`id` 是「看过没有」的唯一判据**：改了 id 才重新弹，只改 items 里的文字不会。
+3. **`pendingUpdates()` 在「从没看过」或「看过的 id 已不在列表里」时，只能回退到最新那一条，
+   绝不能回退成「全部」** —— 否则第一次打开的用户会被积攒的十几版更新糊一脸。
+   用例里专门盯着这条：改成 `list` 立刻红 3 条。
+4. **弹窗只留「已阅」一条出路**（`dismissable:false` + `closable:false`）。
+   留个 ×、或者允许点遮罩关掉，就等于「随手点掉 → 下次又弹」，跟「只弹一次」自相矛盾。
+
+`updateNotice.test.mjs`（45 项，纯 node）守数据体检 + 三条判定规则 + 弹窗结构 + 记档；
+`verify-update-notice.mjs`（20 项，真浏览器 8791 + CDP 9341，出两张图）补的是替身碰不到的：
+「一打开就自动弹」这条链路、**真写进 localStorage 再真重载之后不再弹**、
+以及那颗 × 在真 DOM 里确实查不到（不是被 CSS 藏起来 —— 本项目在 `hidden` 上栽过一次）。
+
+> 想手验弹窗：把存档里 `ui.lastSeenUpdate` 改成空串再刷新（或者直接跑 `verify-update-notice.mjs`，
+> 它自己会播种、还会还原）。
+
 ## PWA 验证
 
 这几个用例需要真实浏览器，和上面那批纯函数测试不是一套跑法。
@@ -297,11 +335,13 @@ node verify-install-gated.mjs # 浏览器：安装入口 + iOS 分支 + 子目�
 node verify-fab-glow.mjs      # 浏览器：加号光晕跟随主题色，21 项（需服务在 8791）
 node verify-sheet-batch.mjs   # 浏览器：载入预设长按批量删除，37 项，顺带出两张图（服务 8791 + CDP 9341）
 node verify-compose-open.mjs  # 浏览器：加号展开后点功能图标不收起，47 项，顺带出两张图（服务 8791 + CDP 9341）
+node verify-collection-picker.mjs # 浏览器：首页挑角色/世界书/灵感走文件夹分组，38 项，顺带出两张图（服务 8791 + CDP 9341）
 node verify-creation-book.mjs # 浏览器：收藏到书架的命名 + 老存档迁移，15 项，顺带出一张图（服务 8791 + CDP 9341）
 node verify-api-gate.mjs      # 浏览器：没配 API 时不进「创作中」而是弹设置入口，19 项，顺带出一张图（服务 8791 + CDP 9341）
 node verify-inline-busy.mjs   # 浏览器：三处 AI 入口的按钮忙态 + 等待期可切页，62 项，顺带出四张图（服务 8791 + CDP 9341）
 node verify-chapter-rename.mjs # 浏览器：点章节名改名 + 虚线提示，18 项，顺带出两张图（服务 8777 + CDP 9333）
 node verify-cloud-backup.mjs  # 浏览器：云端备份上传/恢复 + 恢复不动外观，62 项，顺带出三张图（服务 8823 + CDP 9363）
+node verify-update-notice.mjs # 浏览器：更新弹窗自动出现 + 已阅后不再弹，20 项，顺带出两张图（服务 8791 + CDP 9341）
 node shot-fab-glow.mjs        # 出图：浅色/自定义橙/深色三张，肉眼比对
 ```
 
@@ -464,8 +504,53 @@ del.hidden = !selecting;
 
 结论：**凡是用 hidden 属性做显隐的元素，都得确认没有作者样式给它写过 display。**
 
+## 首页挑条目也要走文件夹（与「我的」页同一套）
+
+用户报的：首页输入框里点「角色 / 世界书 / 灵感」是**把全部条目平铺**出来的，
+而「我的」页里这几项早就分好文件夹了 —— 换个入口分组就没了，等于让用户自己记名字。
+
+修法是抽出一个**选取面板**（`js/components/collectionPicker.js`），展示逻辑与管理页
+（`views/library.js`）对齐：**根目录先列文件夹、再列未分类的条目；点文件夹只列该文件夹里的；
+面包屑点一下回根目录**。文件夹本来就是同一份数据（`state.folders` + 条目的 `folderId`），
+换入口不该变样。首页那边只剩一句：
+
+```js
+const pick = (type) => pickCollection({ type, onPick: (it) => editor.insertChip(type, it.title) });
+```
+
+要点：
+
+- **文件夹行 / 条目行做成公用件** `js/components/collectionList.js`（`folderRow` / `itemRow`），
+  管理页与选取面板都用它。两边各写一遍的话，改类名时漏一处就是「看着还在、样式全丢」的
+  静默 bug —— 类名（`.folder-row` / `.fo-name` / `.fo-count`）全在 `css/components.css` 里，
+  而管理页没有渲染用例，漏改不会红。用例里专门有几条断言比对两边的行结构与计数文案。
+- `folderRow` 的 `onMenu`（管理页的「重命名 / 删除」钮）和 `openable`（面板右侧的箭头）
+  **互斥**：挑条目的时候不该顺手把文件夹改了名；反过来管理页已有操作钮，再加箭头就显得挤。
+- 进文件夹后只列条目、**不再列文件夹**，避免在面板里套娃。
+- `.folder-row .chev` 这条 CSS 是给面板补的：箭头不在 `.row` 里，拿不到 `.row .chev { color: var(--dim) }`，
+  不补就会继承正文色，比旁边条目的箭头重一档。`verify-collection-picker.mjs` 用 computed style 盯着。
+- **没有文件夹时，根目录就是原来的平铺列表**（未分类条目）—— 老用户看不到任何变化。
+- 换了个新文件就别忘 `sw.js`：`collectionList.js` / `collectionPicker.js` 都要进 `SHELL`，
+  并且 `VERSION` 加一 —— 旧壳里那份 `home.js` 点「角色」还是全量平铺。
+
+`verify-collection-picker.mjs` 连 `8791` + CDP `9341`，38 项，出两张图
+（`shot-collection-folders.png` 根目录 / `shot-collection-inside.png` 进了文件夹），
+补的是替身用例碰不到的部分：文件夹行塞进底部面板后的样子、箭头色、以及
+**在真浏览器里点文件夹 → 挑一条 → 芯片真的插进输入框**这条完整链路。
+顺便验了管理页（`#/library/roles`）看到的是同一份分组。
+
+> 写这个用例踩的坑：**DOM 替身缺 `dispatchEvent`**。`editor.insertChip()` 收尾会
+> `box.dispatchEvent(new Event('input'))`，替身里只实现了自定义的 `dispatch()`，于是
+> 「挑完插芯片」那条链路当场 `TypeError: box.dispatchEvent is not a function`。
+> 顺带一提，编辑器问的 `window.getSelection()` 也得补个「没有选区」的返回值，
+> 替身里才会走 `box.append(chip, space)` 那条分支。
+
 ## 踩过的坑
 
+- **DOM 替身要补齐真 DOM 的成员，缺一个就在调用链上炸**。`collectionPicker.test.mjs` 里
+  少了 `dispatchEvent`（`editor.insertChip()` 收尾会 `box.dispatchEvent(new Event('input'))`），
+  表现是「挑完插芯片」那条断言直接 `TypeError` 而不是 FAIL —— 看着像用例写错了，其实是用例
+  要验的功能根本没跑到。同类的还有 `getSelection` / `closest` / `history.length`，按需补。
 - **hidden 属性压不过作者样式的 display**。底部按钮切「关闭 ↔ 取消/删除」只设了 `hidden`，
   真机上三个按钮一起亮着 —— `.btn { display: inline-flex }` 盖掉了 UA 的
   `[hidden] { display: none }`。DOM 替身没有 CSS，测不出来。详见上面单独一节。
