@@ -30,6 +30,15 @@
 /** @type {Array<{id: string, date: string, title: string, items: string[]}>} */
 export const CHANGELOG = [
   {
+    id: 'v16',
+    date: '2026-10-05',
+    title: '修好手机上的拖动排序',
+    items: [
+      '提示词块的「长按拖动排序」以前在手机上长按后一移就弹回原位，现在能正常拖到底',
+      '列表该有的上下滑动不受影响，长按没成功时照常滚动'
+    ]
+  },
+  {
     id: 'v14',
     date: '2026-10-04',
     title: '更新提示',

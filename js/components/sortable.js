@@ -26,11 +26,25 @@ export function sortable(container, { onEnd, onStart, handle } = {}) {
   const isActive = () => !!drag;
   const members = () => [...container.querySelectorAll(itemSel)].filter((el) => el !== drag);
 
-  /* 拖动期间阻断页面滚动：非 passive 的 touchmove 是唯一可靠手段 */
+  /* 拖动期间阻断页面滚动 —— 手机上唯一可靠的手段，三个要点缺一不可：
+     1) 必须挂 window，不能挂 container。begin() 会把被拖的行挪进 document.body，
+        那时它已经不是 container 的后代，挂 container 的 touchmove 再也收不到事件；
+        收不到 → 没人 preventDefault → 浏览器把「移动」当滚动接管，发 pointercancel，
+        行当场弹回原位（就是「长按后一移就动不了、复原了」）。
+     2) 必须真的 preventDefault 掉**第一下** touchmove。`touch-action` 是手势开始时
+        （pointerdown 那一刻）一次性判定的，进入拖动后才给元素补 `touch-action:none`
+        对当前这根手指不生效；只有取消掉首个可取消的 touchmove，
+        浏览器才会放弃接管手势、不再发 pointercancel。
+     3) 非 passive 才有权 preventDefault，别省。
+
+     顺带一个实测结论，省得以后又去加「等待期也拦一下」的保险：
+     Chrome 在位移没过它自己的手势门限之前**根本不派发 touchmove**（实测 5px / 9px
+     的移动一次都没有，40px 才有），而那个门限不比这里的 SLOP 小。所以「还没到长按时长
+     就被浏览器判成滚动」这条路不存在，HOLD_MS 期间不需要额外拦截。 */
   function onTouchMove(e) {
-    if (isActive()) e.preventDefault();
+    if (isActive() && e.cancelable) e.preventDefault();
   }
-  container.addEventListener('touchmove', onTouchMove, { passive: false });
+  window.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
 
   function begin(el, y) {
     const r = el.getBoundingClientRect();
@@ -134,12 +148,14 @@ export function sortable(container, { onEnd, onStart, handle } = {}) {
   }
 
   container.addEventListener('pointerdown', onDown);
+  container.classList.add('sortable');
 
   return {
     destroy() {
       release();
       container.removeEventListener('pointerdown', onDown);
-      container.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchmove', onTouchMove, true);
+      container.classList.remove('sortable');
     }
   };
 }

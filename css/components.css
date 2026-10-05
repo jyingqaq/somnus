@@ -818,6 +818,13 @@ input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 9px; }
 /* ---- 长按拖动排序 ---- */
 html.sort-lock { user-select: none; -webkit-user-select: none; }
 .list.sorting { touch-action: none; }
+/* 可排序的行一律不参与文本选择：iOS 上长按文字会弹放大镜 / 选择手柄，
+   那会把手势从我们手里抢走（同样表现为拖动中途中断），所以别等进拖动才关。 */
+.sortable .row {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
 .sort-ph {
   border-radius: var(--r-sm);
   background: var(--accent-weak);

@@ -228,6 +228,31 @@ DOM 替身比 `settingsApi` 那份多补了几个：菜单要挂 `document.body`
 `getBoundingClientRect()` 定位，所以替身要有 `body.children`、`contains()`、
 `offsetWidth/Height` 语义和 `window.innerWidth/innerHeight`。
 
+**`verify-prompt-sort.mjs`** 守**同一页**的「长按拖动排序」在手机上真能拖到底 —— 这条
+替身用例碰不到，必须在真浏览器里用**真触摸事件**跑（CDP `Input.dispatchTouchEvent`
++ `Emulation.setTouchEmulationEnabled`，视口 390×844）。所以它和 `promptEdit.render.test.mjs`
+是一对：那个管菜单结构，这个管手势。
+
+要记住的：
+
+- **症状与根因**：电脑上正常，手机上「长按进了拖动，手指一移就弹回原位」。根因不在排序
+  逻辑 —— `begin()` 会把被拖的行 `appendChild` 到 `document.body`，它当场不再是 `.list`
+  的后代，而当时拦滚动的 `touchmove` 挂在 `.list` 上 → 收不到 → 没人 `preventDefault`
+  → 浏览器把这一移判成滚动接管、发 `pointercancel` → `onUp()` → 行被插回原位。
+  所以监听改挂 `window`（`capture: true`、非 passive），并且 `touch-action` 是在
+  pointerdown 那一刻一次性判定的，进拖动后才加 `touch-action: none` 对当前手指无效。
+- **断言要落在「移动之后还在拖」**：光断「长按能进拖动」抓不到这个 bug —— 坏代码下
+  那一步也是 PASS 的。
+- **`pointercancel` 不能一律要求为 0**：用手指滚列表时浏览器接管手势、发 pointercancel
+  是正确的，正是它让页面滚起来的。只有「拖动过程中」才断零。
+- **假触摸没法造出「没过浏览器门限」的移动**：Chrome 在位移没过它自己的手势门限前
+  根本不派发 `touchmove`（实测 5px / 9px 一次都没有，40px 才有）。想验「等待期抖动」
+  只能记条数看一眼，别写成断言。
+- **出图**：`shot-prompt-sort-drag.png`（行浮在手指下、原位留着虚线占位），肉眼确认。
+- 播种 12 个块是为了**让页面滚得动** —— 场景「滑动只是滚动、不会误进拖动」需要它；
+  同时顺手把 `ui.lastSeenUpdate` 写成最新一条，否则「更新说明」弹窗会盖住整页，
+  触摸全落在遮罩上（实测踩过，现象是长按毫无反应）。
+
 **`sheetBatch.test.mjs`** 守底部面板 `showSheet` 的长按批量删除（首页输入框的「载入预设」用它）。
 验的是状态机而不是样式：长按进多选 → 点选加减 → 一条不剩自动退出 → 删除走确认框 →
 `onDelete` 拿到的正是被选中的那批 id → 面板就地摘掉这几行（不重开）；
@@ -342,6 +367,7 @@ node verify-inline-busy.mjs   # 浏览器：三处 AI 入口的按钮忙态 + �
 node verify-chapter-rename.mjs # 浏览器：点章节名改名 + 虚线提示，18 项，顺带出两张图（服务 8777 + CDP 9333）
 node verify-cloud-backup.mjs  # 浏览器：云端备份上传/恢复 + 恢复不动外观，62 项，顺带出三张图（服务 8823 + CDP 9363）
 node verify-update-notice.mjs # 浏览器：更新弹窗自动出现 + 已阅后不再弹，20 项，顺带出两张图（服务 8791 + CDP 9341）
+node verify-prompt-sort.mjs   # 浏览器：提示词块长按拖动排序（真触摸事件 + 手机视口），31 项，顺带出一张图（服务 8791 + CDP 9341）
 node shot-fab-glow.mjs        # 出图：浅色/自定义橙/深色三张，肉眼比对
 ```
 

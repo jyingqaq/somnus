@@ -60,7 +60,7 @@
  * 换缓存名同 v6：这份更新日志本身就要靠新壳发到用户手里，而且旧壳里的 modal.js
  * 没有 closable 选项 —— 混用会出现「× 还在、点掉不算已阅、下次又弹」。
  */
-const VERSION = 'v15';
+const VERSION = 'v16';
 const CACHE = `somnus-${VERSION}`;
 /* 应用壳：与 index.html 实际引用的文件保持一致 */
 const SHELL = [
