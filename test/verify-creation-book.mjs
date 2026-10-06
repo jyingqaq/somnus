@@ -22,10 +22,9 @@ import fs from 'node:fs';
 
 const CDP = 'http://127.0.0.1:9341';
 const APP = 'http://127.0.0.1:8791/index.html';
-/* 播种时要把 ui.lastSeenUpdate 写成当前最新那条更新，否则「更新说明」弹窗会先占住
+/* 以前播种时得顺手把 ui.lastSeenUpdate 写成最新那条更新，不然「更新说明」弹窗会先占住
    #modal-root（它只留「已阅」一条出路），后面按文字找按钮可能找错弹窗。
-   id 现取而不写死：下次在 js/changelog.js 加一条更新，这里不用回来改。 */
-const { CHANGELOG } = await import('../js/changelog.js');
+   应用已经不再自动弹任何东西了，这段播种跟着撤掉。 */
 
 let pass = 0, fail = 0;
 const ok = (n, c, e = '') => {
@@ -84,7 +83,6 @@ await ev(`(async () => {
 
 /* 一份「老版本收藏出来的书」：书名与第一章同名，正是当年那条写入路径留下的样子 */
 const legacy = {
-  ui: { lastSeenUpdate: CHANGELOG[0] && CHANGELOG[0].id },
   books: [
     { id: 'b1', title: '旧书', intro: '当初的要求', createdAt: 1759300000000,
       chapters: [{ id: 'c1', title: '旧书', content: '第一章正文……', createdAt: 1759300000000 }] }

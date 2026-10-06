@@ -89,46 +89,31 @@ export function isIosSafari() {
   return isIos && !isIosChrome;
 }
 
-/* ==================== 新版本提示 ==================== */
+/* ==================== 新版本（用户主动获取） ==================== */
 /*
- * 更新是**提示式**的：新壳下载好之后不偷偷接手、更不偷偷刷新，只在底部挂一条
- * 「有新版本可用」，用户点「立即更新」才切过去并重开一次。
+ * 更新是**用户主动获取**的：应用不再自动弹「更新说明」，底部也不再挂
+ * 「有新版本可用」提示条 —— 那两处自动出现的东西不可控（挡内容、抢弹窗、
+ * 正在写的时候冒出来），现在一概没有了。
  *
- * 为什么非做不可：sw.js 对同源资源是 cache-first，而「丢掉整份旧壳」绑在
- * 新 SW 的 activate 上，activate 又必须等**所有窗口都关光**。装到桌面的应用
- * 恰恰很少被真正关掉（挂后台、从图标点回来是复用同一个文档），于是新壳能蹲在
- * waiting 里好几天 —— 用户那边就成了「更新有时拿得到、有时拿不到」。
- * 这条提示就是给 waiting 那份新壳开的一扇门。
+ * 想更新去「设置 → 获取更新」，点一下才查、才切壳。checkForUpdates() 就是
+ * 那条路要用的东西。
+ *
+ * 为什么还得有这个入口、而不能干脆不管：sw.js 对同源资源是 cache-first，
+ * 「丢掉整份旧壳」绑在新 SW 的 activate 上，而 activate 又必须等**所有窗口
+ * 都关光**。装到桌面的应用恰恰很少被真正关掉（挂后台、从图标点回来是复用
+ * 同一个文档），于是新壳能蹲在 waiting 里好几天 —— 用户那边就成了
+ * 「更新有时拿得到、有时拿不到」。这个按钮就是给 waiting 那份新壳开的一扇门。
  */
 
-const updateListeners = new Set();
 let registration = null;
-let updateReady = false;  // 新壳已装好、正卡在 waiting
 let reloading = false;    // 只自动重开一次，避免 controllerchange 打转
-
-/** 订阅「有新版本待启用」，返回取消订阅函数。订阅时会立刻回调一次当前状态。 */
-export function onUpdateChange(fn) {
-  updateListeners.add(fn);
-  fn(updateReady);
-  return () => updateListeners.delete(fn);
-}
-
-/** 是否有新壳在 waiting（给测试和调试用） */
-export function hasUpdateReady() {
-  return updateReady;
-}
-
-function setUpdateReady(v) {
-  if (updateReady === v) return;
-  updateReady = v;
-  updateListeners.forEach((fn) => fn(v));
-}
 
 /**
  * 用户点了「立即更新」：让 waiting 的那份接手，接手完自动重开一次。
  *
- * 没 waiting 的时候（比如用户手快、新壳刚被别的路径启用）直接重开一次兜底 ——
- * 刷新本身就会走一遍 network-first 的导航，拿到的是线上最新的 index.html。
+ * 没 waiting 的时候（比如新壳刚被别的路径启用，或者这台设备压根没注册 SW）
+ * 直接重开一次兜底 —— 刷新本身就会走一遍 network-first 的导航，
+ * 拿到的是线上最新的 index.html。
  */
 export function applyUpdate() {
   const waiting = registration && registration.waiting;
@@ -148,61 +133,62 @@ function reloadOnce() {
   location.reload();
 }
 
-/** 每 CHECK_GAP 才真查一次，免得来回切页时把 sw.js 打得太勤 */
-const CHECK_GAP = 5 * 60 * 1000;
-let lastCheckAt = 0;
-
-function checkForUpdate() {
-  if (document.visibilityState !== 'visible' || !registration) return;
-  const now = Date.now();
-  if (now - lastCheckAt < CHECK_GAP) return;
-  lastCheckAt = now;
-  registration.update().catch(() => {});
+/** 取当前注册。启动时的 register 还没解析就现场问一次 —— 用户可能一进设置就点。 */
+async function currentRegistration() {
+  if (registration) return registration;
+  if (!('serviceWorker' in navigator)) return null;
+  try {
+    registration = (await navigator.serviceWorker.getRegistration()) || null;
+  } catch {
+    registration = null;
+  }
+  return registration;
 }
 
 /**
- * 盯住一个正在装的新壳。
+ * 等新壳落到 waiting（装好了、卡着不接手）。
  *
- * 只在「installed 且页面已经被**旧**壳控制着」时才提示 —— 这才是「新壳装好了
- * 却卡在 waiting」。第一次安装时 controller 是空的（装完直接 activate），
- * 不能提示，否则全新用户一进来就看到「有新版本」。
+ * 刚 update() 完时新壳多半还在 installing，得等它定下来。`installing` 消失而
+ * `waiting` 还是空，只有两种可能：检查完发现没新版，或者新壳直接 activate 了
+ * （首次安装才会那样）—— 都算「没有待更新的版本」。
  */
-function trackIncoming(worker) {
-  if (!worker) return;
-
-  const check = () => {
-    if (worker.state === 'installed' && navigator.serviceWorker.controller) {
-      setUpdateReady(true);
-    }
-  };
-
-  worker.addEventListener('statechange', check);
-  // 监听挂上之前它可能已经走到 installed 了（见下面那个补一次的调用）
-  check();
+async function waitForWaiting(reg, timeout) {
+  const until = Date.now() + timeout;
+  for (;;) {
+    if (reg.waiting) return true;
+    if (!reg.installing || Date.now() >= until) return false;
+    await new Promise((r) => setTimeout(r, 150));
+  }
 }
 
-function watchRegistration(reg) {
-  // 打开时就已经蹲着一个 waiting 的：上次没更新就退出了，或者系统压根没关过这个应用
-  if (reg.waiting && navigator.serviceWorker.controller) setUpdateReady(true);
+/**
+ * 主动查一次有没有新版本。**只有用户点了「获取更新」才会走到这里。**
+ *
+ * `reg.update()` 是强制检查，不受浏览器「24 小时最多查一次」那套自动节流限制；
+ * sw.js 注册时带的是 `updateViaCache: 'none'`，所以拿到的也一定是线上的 sw.js
+ * 而不是 HTTP 缓存里那份。
+ *
+ * @returns {Promise<'new'|'latest'|'failed'|'unsupported'>}
+ *   new         —— 线上有新壳，正卡在 waiting 等用户点头
+ *   latest      —— 查过了，已经是最新
+ *   failed      —— 没查成（多半是断网）
+ *   unsupported —— 这个环境没有 Service Worker（比如 file:// 直接打开）
+ */
+export async function checkForUpdates() {
+  if (!('serviceWorker' in navigator)) return 'unsupported';
+  const reg = await currentRegistration();
+  if (!reg) return 'unsupported';
 
-  /*
-   * 壳被换掉了（最典型的路径是用户自己把应用全关掉再打开，waiting 那份顺势 activate）
-   * → 提示条该收了，别让用户点一个已经生效的按钮。
-   * 我们主动切壳那次不用管：紧接着就 location.reload() 了。
-   */
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (!reloading) setUpdateReady(false);
-  });
+  let reachable = true;
+  try {
+    await reg.update();
+  } catch {
+    reachable = false;
+  }
 
-  reg.addEventListener('updatefound', () => trackIncoming(reg.installing));
-
-  /*
-   * 补一眼：**首次注册**时 updatefound 是在 register() 解析之前就派发的
-   * （注册与安装是同一个动作，等我们拿到 registration 时事件早发过了），
-   * 那个事件必然收不到 —— 所以这里主动看有没有正在装的新壳。
-   * 首次安装走到 installed 时 controller 还是空的，所以不会因此误报。
-   */
-  trackIncoming(reg.installing);
+  if (!reachable) return reg.waiting ? 'new' : 'failed';
+  // 给足下载时间：断网环境下壳里几十个文件要逐个取回来（虽然多半命中 HTTP 缓存）
+  return (await waitForWaiting(reg, 8000)) ? 'new' : 'latest';
 }
 
 export function initPwa() {
@@ -227,26 +213,15 @@ export function initPwa() {
   if (mq.addEventListener) mq.addEventListener('change', onModeChange);
   else if (mq.addListener) mq.addListener(onModeChange);
 
-  /*
-   * 从后台切回来时补一次检查。
-   *
-   * 浏览器只在**导航**时顺带做一次 SW 更新检查，而装到桌面的 PWA 从图标点回来
-   * 往往是复用同一个文档（安卓按 home 只是挂后台、iOS 是挂起），根本没有导航 ——
-   * 于是新版发出去好几天，用户那边一次都没查过，表现就是「更新时有时无」。
-   * 手动 update() 不受浏览器「24 小时最多查一次」那套自动节流限制，所以自己查。
-   */
-  document.addEventListener('visibilitychange', checkForUpdate);
-
   window.addEventListener('load', () => {
     // updateViaCache: 'none' —— 做更新检查时别用 HTTP 缓存里的 sw.js。
     // 否则发了新版本（sw.js 里 VERSION 换名）也可能被浏览器压着不生效，
     // 用户就一直停在旧的壳和旧的样式表上。
+    //
+    // 这里只注册、不订阅任何「有新版本」事件：检查是用户在设置页主动发起的，
+    // 启动时不该有任何更新相关的 UI 冒出来。
     navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })
-      .then((reg) => {
-        registration = reg;
-        lastCheckAt = Date.now(); // 刚注册过就算查过一次，别紧接着又来一次
-        watchRegistration(reg);
-      })
+      .then((reg) => { registration = reg; })
       .catch(() => {
         // file:// 下必然失败，属于预期情况，不打扰用户
       });

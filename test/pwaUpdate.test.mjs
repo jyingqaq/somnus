@@ -1,10 +1,12 @@
 /*
- * 「提示式更新」的接线守卫（纯 node，读源码 + 文件，不起浏览器）。
+ * 「主动获取更新」的接线守卫（纯 node，读源码 + 文件，不起浏览器）。
  *
  * 为什么用读源码的方式守：这套链路的每一环都**断了也不报错** ——
- * 少发一次 postMessage、少一个 controllerchange 钩子、SHELL 漏一个文件，
- * 页面照常能跑，只是又回到「更新时有时无」。这种静默失效只能靠断言钉住。
- * 真正的行为（点一下真的换壳并重开）由 verify-pwa-update.mjs 在真浏览器里跑。
+ * 少发一次 postMessage、少一个 controllerchange 钩子、SHELL 漏一个文件、
+ * 设置页那个入口被改回「自动弹」，页面照常能跑，只是用户又拿不到新版、
+ * 或者又被自动弹窗糊一脸。这种静默失效只能靠断言钉住。
+ * 真正的行为（点一下真的换壳并重开、真的列出新版本内容）由
+ * verify-pwa-update.mjs 在真浏览器里跑。
  *
  * 这里的每一条都对应一个具体后果，写在中文名里。
  */
@@ -14,20 +16,20 @@ import { fileURLToPath } from 'node:url';
 
 const file = (p) => readFile(new URL(`../${p}`, import.meta.url), 'utf8');
 
-const [sw, pwa, bar, app, css, manifest] = await Promise.all([
+const [sw, pwa, app, notice, settings, page, css, baseCss] = await Promise.all([
   file('sw.js'),
   file('js/pwa.js'),
-  file('js/components/updateBar.js'),
   file('js/app.js'),
+  file('js/services/updateNotice.js'),
+  file('js/views/settings.js'),
+  file('js/views/settingsUpdates.js'),
   file('css/components.css'),
-  file('manifest.webmanifest')
+  file('css/base.css')
 ]);
 
 const { CHANGELOG } = await import('../js/changelog.js');
 
 /* ---------- SHELL 与磁盘双向核对 ---------- */
-
-const root = fileURLToPath(new URL('..', import.meta.url));
 
 async function walk(dir) {
   const out = [];
@@ -39,7 +41,8 @@ async function walk(dir) {
 }
 
 const shell = [...sw.matchAll(/'\.\/([^']+)'/g)].map((m) => m[1]);
-const onDisk = [...(await walk('js')), ...(await walk('css')), ...(await walk('icons')),
+const diskJs = await walk('js');
+const onDisk = [...diskJs, ...(await walk('css')), ...(await walk('icons')),
   'index.html', 'manifest.webmanifest'];
 
 const notInShell = onDisk.filter((f) => !shell.includes(f));
@@ -48,62 +51,70 @@ const notOnDisk = shell.filter((f) => !onDisk.includes(f));
 /* ---------- 断言表 ---------- */
 
 const CHECKS = [
+  /* 撤掉的老东西：一样都不许留在盘上或代码里 */
+  ['updateBar.js 已经删掉（自动提示条整个撤了）',
+    !onDisk.includes('js/components/updateBar.js')],
+  ['底部的 .update-bar 样式也删了（两个 css 都不许留残影）',
+    !/\.update-bar/.test(css) && !/\.update-bar/.test(baseCss)],
+  ['app.js 不再挂提示条', !/mountUpdateBar|updateBar/.test(app)],
+  ['app.js 不再自动弹更新说明', !/showUpdateNoticeIfAny/.test(app)],
+  ['updateNotice.js 不再导出自动弹窗',
+    !/export function showUpdateNoticeIfAny/.test(notice) && !/openModal/.test(notice)],
+  ['pwa.js 不再自己盯 visibilitychange 偷偷查（改成用户点按钮才查）',
+    !/visibilitychange/.test(pwa) && !/CHECK_GAP/.test(pwa)],
+
   /* sw.js */
-  ['SHELL 收了 updateBar.js（否则离线时提示条加载不出来）',
-    shell.includes('js/components/updateBar.js')],
   ['SHELL 与磁盘双向一致：磁盘上每个文件都在清单里',
     notInShell.length === 0, notInShell.join(',')],
   ['SHELL 与磁盘双向一致：清单里每个文件都真实存在',
     notOnDisk.length === 0, notOnDisk.join(',')],
-  ['sw.js 仍把 skip-waiting 接到 skipWaiting（提示条的落点就在这里）',
+  ['sw.js 仍把 skip-waiting 接到 skipWaiting（「立即更新」的落点就在这里）',
     /event\.data === 'skip-waiting'[\s\S]{0,40}skipWaiting\(\)/.test(sw)],
+  ['带查询串的同源请求不进缓存（不然每点一次「获取更新」就白堆一份 changelog）',
+    /if \(url\.search\) return;/.test(sw)],
 
   /* pwa.js：把 waiting 那份推到 activate */
   ['pwa.js 真的会发出 skip-waiting（全链路最关键的一条）',
     /postMessage\('skip-waiting'\)/.test(pwa)],
-  ['发出 skip-waiting 前先挂了 controllerchange', 
+  ['发出 skip-waiting 前先挂了 controllerchange',
     /controllerchange'[\s\S]{0,80}postMessage\('skip-waiting'\)/.test(pwa)],
   ['重开只做一次（reloading 守卫），不会 controllerchange 打转',
     /if \(reloading\) return;[\s\S]{0,60}reloading = true;[\s\S]{0,40}location\.reload\(\)/.test(pwa)],
   ['没 waiting 时也能重开兜底（applyUpdate 直接 reloadOnce）',
     /if \(!waiting\) \{[\s\S]{0,40}reloadOnce\(\)/.test(pwa)],
 
-  /* pwa.js：什么时候才提示 */
-  ['新壳 installed 且页面被旧壳控制着才提示（首次安装不提示）',
-    /worker\.state === 'installed' && navigator\.serviceWorker\.controller/.test(pwa)],
-  ['首次注册补一眼 reg.installing（updatefound 在 register 解析前就发过了）',
-    /trackIncoming\(reg\.installing\)/.test(pwa)],
-  ['打开时就检查已有的 waiting（上次没更新就退出的场景）',
-    /reg\.waiting && navigator\.serviceWorker\.controller\) setUpdateReady\(true\)/.test(pwa)],
-  ['壳被外部换掉时把提示收回去',
-    /controllerchange'[\s\S]{0,80}if \(!reloading\) setUpdateReady\(false\)/.test(pwa)],
+  /* pwa.js：主动检查这条路 */
+  ['pwa.js 导出 checkForUpdates（设置页那个按钮要靠它）',
+    /export async function checkForUpdates/.test(pwa)],
+  ['检查是真的去要 sw.js（reg.update()），不是读现成状态',
+    /await reg\.update\(\)/.test(pwa)],
+  ['检查会等新壳落到 waiting（刚 update() 完它多半还在 installing）',
+    /if \(reg\.waiting\) return true;[\s\S]{0,80}reg\.installing/.test(pwa)],
+  ['没有 Service Worker 的环境给的是 unsupported，不是崩掉',
+    /'serviceWorker' in navigator\)\) return 'unsupported'/.test(pwa)],
+  ['拿不到注册时也返回 unsupported（用户可能一进设置就点）',
+    /if \(!reg\) return 'unsupported';/.test(pwa)],
+  ['register 之后只记下 registration，不再订阅任何「有新版本」事件',
+    /register\('\.\/sw\.js', \{ updateViaCache: 'none' \}\)[\s\S]{0,400}then\(\(reg\) => \{ registration = reg; \}\)/.test(pwa)],
 
-  /* pwa.js：从后台切回来补查 */
-  ['从后台切回来会主动 update()（复用同一文档时不会有导航）',
-    /visibilitychange[\s\S]{0,80}checkForUpdate/.test(pwa)
-      && /registration\.update\(\)/.test(pwa)],
-  ['补查有 5 分钟节流，不会来回切页就狂打 sw.js',
-    /CHECK_GAP = 5 \* 60 \* 1000/.test(pwa) && /now - lastCheckAt < CHECK_GAP/.test(pwa)],
-  ['register 之后接上 watchRegistration（否则上面这套全都不生效）',
-    /register\('\.\/sw\.js', \{ updateViaCache: 'none' \}\)[\s\S]{0,400}watchRegistration\(reg\)/.test(pwa)],
-  ['onUpdateChange / applyUpdate 都已导出（提示条要用）',
-    /export function onUpdateChange/.test(pwa) && /export function applyUpdate/.test(pwa)],
+  /* 入口：设置页 → 更新页 */
+  ['设置页的入口叫「获取更新」（不再是「更新日志」）',
+    /label: '获取更新'/.test(settings) && !/label: '更新日志'/.test(settings)],
+  ['设置页入口指向 /settings/updates', /navigate\('\/settings\/updates'\)/.test(settings)],
+  ['更新页用的是 checkForUpdates / applyUpdate',
+    /import \{ applyUpdate, checkForUpdates \} from '\.\.\/pwa\.js'/.test(page)],
+  ['更新页有「获取更新」按钮，且是**用户点**才查（render 里不直接 await）',
+    /获取更新/.test(page) && /addEventListener\('click', \(\) => run\(\)\)/.test(page)],
+  ['更新页会拉线上 changelog 算出「这次改了什么」',
+    /newerUpdates\(await fetchRemoteUpdates\(\)\)/.test(page)],
+  ['更新页有「立即更新」，且点完先禁用（切壳 + 重开不可逆）',
+    /go\.disabled = true;[\s\S]{0,60}applyUpdate\(\)/.test(page)],
+  ['更新页把没看过的条目标成「新」，并在渲染时记档',
+    /unseen\.has\(it\.id\) \? '新'/.test(page) && /markUpdatesSeen\(list\[0\]\.id\)/.test(page)],
 
-  /* updateBar.js */
-  ['提示条不自己判状态，判定全取 pwa.js',
-    /import \{ onUpdateChange, applyUpdate \} from '\.\.\/pwa\.js'/.test(bar)],
-  ['「立即更新」点完先禁用，避免切壳期间被连点',
-    /action\.disabled = true;[\s\S]{0,60}applyUpdate\(\)/.test(bar)],
-  ['× 只是本次会话静音，状态回落后要清掉（否则下一版永远不提示）',
-    /if \(!ready\) dismissed = false;/.test(bar)],
-  ['提示条挂在 layer-root（不在 #view 里，换页不会被重画）',
-    /getElementById\('layer-root'\)\.appendChild\(bar\)/.test(bar)],
-  ['app.js 挂上了提示条',
-    /mountUpdateBar\(\)/.test(app)],
-
-  /* 样式：本项目栽过的 hidden 坑 */
-  ['CSS 补了 .update-bar[hidden]（hidden 压不过作者样式的 display）',
-    /\.update-bar\[hidden\] \{ display: none; \}/.test(css)],
+  /* 样式 */
+  ['CSS 补了更新页那几张卡（.up-state / .up-extra）',
+    /\.up-state \{/.test(css) && /\.up-extra:not\(:empty\)/.test(css)],
 
   /* 更新日志 */
   ['CHANGELOG 的 id 全局唯一',

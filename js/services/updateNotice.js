@@ -1,21 +1,36 @@
 /**
- * 更新提示：打开应用时若有「还没看过」的更新，弹一次说明。
+ * 更新说明：数据源 + 「获取更新」时用得上的判定。
+ *
+ * ── 应用**不会**自动弹更新说明 ──────────────────────────────
+ * 打开时什么都不弹，底部也不挂提示条。用户想看得自己走「设置 → 获取更新」，
+ * 在那里点一下，才会：查有没有新版本 → 列出这次改了什么 → 由他决定更不更。
+ * （以前那套「打开就弹一次 + 底部挂条」的自动提示撤掉了，太不可控。）
+ *
+ * ── 这个文件提供三件事 ──────────────────────────────────
+ *   1. 读本地这份更新日志（js/changelog.js）：updates / latestUpdate / updateItem …
+ *   2. 拉线上的最新日志、算出「比本地新的条目」：fetchRemoteUpdates / newerUpdates
+ *   3. 「哪些条目用户还没看过」的记档：pendingUpdates / markUpdatesSeen ——
+ *      更新页据此把没看过的标一个「新」字
+ *
+ * 第 2 条为什么非得真去线上拉：本机跑的这份 js/changelog.js 是**旧壳**里的，
+ * 线上新版本的条目它根本不知道 —— 不拉一次，「这次改了什么」就无从谈起。
  *
  * 数据源是 js/changelog.js 的 CHANGELOG —— 它跟代码一起发布（同在一个 sw.js 的
  * SHELL 里预缓存），所以每个装了应用的人都能收到；写进 state 就没这个效果了。
- *
- * 「看到哪一条了」记在 state.ui.lastSeenUpdate：属于界面态，
- * 不进备份、也不跟着云端走 —— 换台设备本来就该重新看一次新版本说明。
  */
 
 import { h } from '../util/dom.js';
 import { CHANGELOG } from '../changelog.js';
-import { getState, patchUi } from '../store.js';
-import { openModal } from '../components/modal.js';
+import { patchUi } from '../store.js';
+
+/** 只留能用的条目（缺 id / 缺 items 的直接丢） */
+function normalize(list) {
+  return Array.isArray(list) ? list.filter((it) => it && it.id && it.items) : [];
+}
 
 /** 全部更新，新的在前 */
 export function updates() {
-  return Array.isArray(CHANGELOG) ? CHANGELOG.filter((it) => it && it.id && it.items) : [];
+  return normalize(CHANGELOG);
 }
 
 /** 最新一条（没有就是 null） */
@@ -57,10 +72,10 @@ export function markUpdatesSeen(id) {
 }
 
 /**
- * 一条更新的正文。弹窗和「更新日志」页共用同一份结构，
+ * 一条更新的正文。更新页的历史列表与「这次的新内容」共用同一份结构，
  * 免得两边各写一遍、改类名时漏一处。
  * @param {object} it 更新条目
- * @param {string} [tag] 可选的小标签（日志页用来标「最新」）
+ * @param {string} [tag] 可选的小标签（「最新」/「新」）
  */
 export function updateItem(it, tag) {
   return h('div', { class: 'un-item' },
@@ -74,26 +89,28 @@ export function updateItem(it, tag) {
 }
 
 /**
- * 有没看过的更新就弹窗，返回是否弹了（给调用方和测试一个明确的信号）。
+ * 从线上拉一份最新的更新日志。
  *
- * 弹窗刻意**只留「已阅」一条出路**（点遮罩不关、右上角也没有 ×）：
- * 需求就是「每次更新只弹一次」，随手点掉、下次又弹反而更烦人。
+ * URL 后面那串时间戳不是装饰：同源资源在 sw.js 里是 cache-first，不带 query
+ * 的话读到的永远是**旧壳里那一份**，等于白拉。（sw.js 里对带查询串的请求
+ * 直接透传，既不读也不写缓存，所以也不会把缓存搅乱。）
+ *
+ * 离线、或是 file:// 直接打开时这里会抛 —— 调用方自己兜。
  */
-export function showUpdateNoticeIfAny() {
-  const list = updates();
-  const pending = pendingUpdates(list, getState().ui.lastSeenUpdate);
-  if (!pending.length) return false;
+export async function fetchRemoteUpdates() {
+  const url = new URL('../changelog.js', import.meta.url);
+  url.searchParams.set('t', String(Date.now()));
+  const mod = await import(url.href);
+  return normalize(mod.CHANGELOG);
+}
 
-  openModal({
-    title: '更新说明',
-    body: h('div', {}, pending.map((it) => updateItem(it))),
-    dismissable: false,
-    closable: false,
-    actions: [{
-      label: '已阅',
-      kind: 'primary',
-      onClick: (close) => { markUpdatesSeen(list[0].id); close(); }
-    }]
-  });
-  return true;
+/**
+ * 线上比本地多出来的条目 —— 就是「这次更新要告诉用户的内容」。
+ *
+ * 判据是 id：changelog 只往**最前面**加，所以本地没有的 id 就是新增的。
+ * 线上反而更旧（本地是自己改过的开发版）时自然返回空数组。
+ */
+export function newerUpdates(remote, local = updates()) {
+  const known = new Set(local.map((it) => it.id));
+  return normalize(remote).filter((it) => !known.has(it.id));
 }

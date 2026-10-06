@@ -95,7 +95,6 @@ body { margin: 0; }
 /* 卡片半透明时补一层毛玻璃，避免文字压在背景图上难以辨析 */
 :root.frosted .card,
 :root.frosted .modal-card,
-:root.frosted .update-bar,
 :root.frosted .field,
 :root.frosted .field-area,
 :root.frosted .editor {

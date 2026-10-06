@@ -38,9 +38,10 @@ export function render() {
     h('div', { class: 'sec-gap' }),
     h('div', { class: 'card' },
       listRow({
-        label: '更新日志',
+        // 应用不再自动弹「更新说明」、底部也不再挂提示条 —— 更新只能从这里主动获取。
+        // 进去就是更新页：查有没有新版本 + 这次改了什么 + 决定更不更，历史日志也在那儿。
+        label: '获取更新',
         iconName: 'refresh',
-        // 副标题显示最新那一版的「日期 · 标题」，打开设置就知道自己落在哪一版
         sub: updateSummary(latestUpdate()),
         onClick: () => navigate('/settings/updates')
       })

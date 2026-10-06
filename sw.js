@@ -82,8 +82,30 @@
  * 让用户点一下才切壳并重开。
  * 换缓存名的理由同 v6：旧壳里的 pwa.js 只 register、不看 waiting，
  * 已装机的用户还是只能靠「把所有窗口关光」碰运气。
+ *
+ * v21：自动提示全部撤掉，更新改成用户主动获取
+ * （删掉 js/components/updateBar.js；js/pwa.js 去掉 updateReady 状态与
+ * visibilitychange 自动检查、改成导出 checkForUpdates()；删掉 updateNotice.js
+ * 里的自动弹窗、新增 fetchRemoteUpdates()/newerUpdates()；
+ * js/views/settingsUpdates.js 重写成「获取更新」页；js/app.js · js/views/settings.js
+ * · css/components.css 跟着改）。
+ *
+ * 那两处自动出现的 UI（打开就弹的「更新说明」弹窗、底部常驻的「有新版本可用」条）
+ * 不可控 —— 挡内容、抢 #modal-root、正在写的时候冒出来 —— 用户要求撤掉。
+ * 现在唯一入口是「设置 → 获取更新」：点一下才查有没有新壳，先把这次改了什么列出来
+ * （线上的 changelog 要现拉，本机跑的这份是旧壳里的、不知道新条目），再由用户
+ * 点「立即更新」切壳重开。pwa.js 里 checkForUpdates() 仍然走同一套
+ * skip-waiting 通路，只是发起者从「自动」换成了「用户点按钮」。
+ *
+ * 还有一处顺带改的：**带查询串的同源请求不再进缓存**（见下面 fetch 里那句）——
+ * 拉线上 changelog 时 URL 上挂了个时间戳防 cache-first，不拦一下的话
+ * 每点一次「获取更新」就往缓存里塞一份，白堆。
+ *
+ * 换缓存名的理由同 v6：旧壳里那份 js/app.js 还会挂底部提示条、
+ * 旧壳里的 js/pwa.js 也没有 checkForUpdates —— 不换壳，
+ * 「设置 → 获取更新」这个按钮点下去查不到任何东西。
  */
-const VERSION = 'v20';
+const VERSION = 'v21';
 const CACHE = `somnus-${VERSION}`;
 /* 应用壳：与 index.html 实际引用的文件保持一致 */
 const SHELL = [
@@ -123,7 +145,6 @@ const SHELL = [
   './js/components/sortable.js',
   './js/components/toast.js',
   './js/components/topbar.js',
-  './js/components/updateBar.js',
 
   './js/panels/background.js',
   './js/panels/fonts.js',
@@ -194,6 +215,16 @@ self.addEventListener('fetch', (event) => {
 
   /* 跨域（含 AI 接口）：一律放行，不读也不写缓存 */
   if (url.origin !== self.location.origin) return;
+
+  /*
+   * 带查询串的同源请求：同样放行。
+   *
+   * 唯一会这么发的是「获取更新」时拉线上更新日志（js/services/updateNotice.js
+   * 给 ../changelog.js 挂了个时间戳，用来绕开下面这套 cache-first）。
+   * 若还走缓存逻辑，每点一次「获取更新」就会往缓存里塞一份新的 changelog，
+   * 而这些 URL 再也不会被访问第二次 —— 纯白堆。
+   */
+  if (url.search) return;
 
   /* 页面导航：network-first，断网回落缓存 */
   if (req.mode === 'navigate') {

@@ -100,9 +100,7 @@ await ev(`(async () => {
   return 1;
 })()`);
 
-const { CHANGELOG } = await import('../js/changelog.js');
-
-/** 播种 N 个自定块 + 顺手把更新弹窗按掉（不然它盖住整页，指点全落在遮罩上） */
+/** 播种 N 个自定块（应用不再自动弹更新说明，不必再顺手按掉什么弹窗） */
 const seed = async () => {
   await ev(`(() => {
     const k = 'somnus_state_v1';
@@ -118,7 +116,6 @@ const seed = async () => {
         text: '第 ' + (i + 1) + ' 块的内容，用来把页面撑长一点'
       }))
     };
-    s.ui = Object.assign({}, s.ui || {}, { lastSeenUpdate: ${JSON.stringify(CHANGELOG[0]?.id || '')} });
     localStorage.setItem(k, JSON.stringify(s));
     return 1;
   })()`);

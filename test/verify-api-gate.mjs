@@ -75,15 +75,12 @@ await ev(`(async () => {
 /* 一份「装着应用但什么 API 都没填」的存档：地址有默认值、Key 是空的，
    正是用户报这个 bug 时的状态。另外放一条老创作，用来数条目有没有凭空变多。
 
-   `ui.lastSeenUpdate` 必须写成**当前最新那条更新的 id** —— 不然一打开应用，
-   「更新说明」弹窗（dismissable:false、只留「已阅」一条出路）会先挂在 #modal-root 里。
-   这条用例全程没换过 hash（本来就在 #/home），也就没有一次路由重置去关掉它，
-   于是下面读 `.modal-body` 读到的是更新说明的正文，「说清了缺的是 Key」这条永远红。
-   id 从 js/changelog.js 现取而不是写死，下次加更新条目不用回来改这里。 */
-const { CHANGELOG } = await import('../js/changelog.js');
+   以前这里得顺手把 `ui.lastSeenUpdate` 写成最新那条更新的 id，否则一打开应用
+   「更新说明」弹窗会先挂在 #modal-root 里（它只留「已阅」一条出路），
+   全程停在 #/home 的这条用例就会读到那份正文 —— 「说清了缺的是 Key」永远红。
+   现在应用**不再自动弹任何东西**了，这段播种跟着撤掉。 */
 const seed = {
   settings: { apiBase: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini', temperature: 0.9, maxTokens: 0 },
-  ui: { lastSeenUpdate: CHANGELOG[0] && CHANGELOG[0].id },
   creations: [{ id: 'old1', title: '旧创作', request: '旧要求', content: '旧正文', createdAt: 1759300000000 }]
 };
 await ev(`localStorage.setItem('somnus_state_v1', ${JSON.stringify(JSON.stringify(seed))})`);

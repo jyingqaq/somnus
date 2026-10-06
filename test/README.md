@@ -255,9 +255,9 @@ DOM 替身比 `settingsApi` 那份多补了几个：菜单要挂 `document.body`
   根本不派发 `touchmove`（实测 5px / 9px 一次都没有，40px 才有）。想验「等待期抖动」
   只能记条数看一眼，别写成断言。
 - **出图**：`shot-prompt-sort-drag.png`（行浮在手指下、原位留着虚线占位），肉眼确认。
-- 播种 12 个块是为了**让页面滚得动** —— 场景「滑动只是滚动、不会误进拖动」需要它；
-  同时顺手把 `ui.lastSeenUpdate` 写成最新一条，否则「更新说明」弹窗会盖住整页，
-  触摸全落在遮罩上（实测踩过，现象是长按毫无反应）。
+- 播种 12 个块是为了**让页面滚得动** —— 场景「滑动只是滚动、不会误进拖动」需要它。
+  （以前这里还要顺手把 `ui.lastSeenUpdate` 写成最新一条，否则「更新说明」弹窗会盖住整页、
+  触摸全落在遮罩上；应用不再自动弹任何东西之后，那段播种撤掉了。）
 
 **`sheetBatch.test.mjs`** 守底部面板 `showSheet` 的长按批量删除（首页输入框的「载入预设」用它）。
 验的是状态机而不是样式：长按进多选 → 点选加减 → 一条不剩自动退出 → 删除走确认框 →
@@ -332,38 +332,119 @@ DOM 替身比 `settingsApi` 那份多补了几个：菜单要挂 `document.body`
 另外顶栏标题改成 `div.tb-title > span.tb-label` 的结构了（虚线得靠 inline span 才贴着文字），
 `h()` 的 `text` 和样式都不受影响，但以后要断言标题文字记得取 `.tb-label`。
 
-## 更新提示（告诉用户「这次改了什么」）
+## 更新改成「用户自己去拿」（主动获取）
 
-需求：给作者一个写更新内容的地方；用户进入应用时有改动就弹窗告知，**每次更新只弹一次**，附「已阅」。
+**用户提的**：自动弹窗不可控 —— 挡内容、抢 `#modal-root`、正在写的时候冒出来。所以
+**所有自动出现的更新 UI 全撤掉**（打开应用弹的「更新说明」、底部常驻的「有新版本可用」条），
+只在「设置 → 获取更新」留一个入口，用户点一下才查、才切壳。
 
 | 位置 | 做什么 |
 |---|---|
 | `js/changelog.js` | **写更新内容的地方**，纯数据（`id` / `date` / `title` / `items`） |
-| `js/services/updateNotice.js` | 未读判定 + 弹窗；`updateItem()` 被弹窗和日志页共用 |
-| `js/views/settingsUpdates.js` | 设置 → 更新日志（弹窗只弹一次，历史在这里回看） |
-| `js/app.js` | 启动后 `setTimeout(showUpdateNoticeIfAny, 300)` |
-| `js/components/modal.js` | 新增 `closable`；配 `dismissable:false` = 只能走底部按钮 |
-| `state.ui.lastSeenUpdate` | 「已阅到哪一版」，界面态 → 不进备份、不跨设备 |
+| `js/services/updateNotice.js` | 读本地日志 + 展示（`updates` / `updateItem`）；**拉线上日志算出新增条目**（`fetchRemoteUpdates` / `newerUpdates`）；「哪些没看过」（`pendingUpdates` / `markUpdatesSeen`） |
+| `js/pwa.js` | `checkForUpdates()` 主动查一次（`'new'｜'latest'｜'failed'｜'unsupported'`）；`applyUpdate()` 切壳 + 重开 |
+| `js/views/settingsUpdates.js` | 更新页：进页面自动查一次 + 「获取更新」按钮 + 查到新版时列出内容 + 「立即更新」+ 历史日志 |
+| `js/views/settings.js` | 入口那一行（叫「获取更新」），副标题是最新那版的「日期 · 标题」 |
+| `js/app.js` | 启动**不做任何和更新有关的 UI**（这里原来是挂提示条 + 定时弹窗的地方） |
+| `state.ui.lastSeenUpdate` | 「看到哪一版了」，界面态 → 不进备份、不跨设备；只用来给没看过的条目标「新」 |
 
-四条要记住的：
+五条要记住的：
 
 1. **更新日志必须跟着代码发布，不能写进 localStorage**。写进去只有本机看得见，
    「告知用户改了什么」这件事就落不了地。加一条更新 = 在 `CHANGELOG` **最前面**插一项
    + 换个新 `id` + 双击 `push.cmd`（它自动把 `sw.js` 的 VERSION 加一）。
-2. **`id` 是「看过没有」的唯一判据**：改了 id 才重新弹，只改 items 里的文字不会。
-3. **`pendingUpdates()` 在「从没看过」或「看过的 id 已不在列表里」时，只能回退到最新那一条，
-   绝不能回退成「全部」** —— 否则第一次打开的用户会被积攒的十几版更新糊一脸。
-   用例里专门盯着这条：改成 `list` 立刻红 3 条。
-4. **弹窗只留「已阅」一条出路**（`dismissable:false` + `closable:false`）。
-   留个 ×、或者允许点遮罩关掉，就等于「随手点掉 → 下次又弹」，跟「只弹一次」自相矛盾。
+2. **`id` 是「看过没有」的唯一判据**：改了 id 才会重新被标成「新」，只改 items 里的文字不会。
+   线上那份日志就是靠 id 集合比对出「本地没有的条目」（`newerUpdates`）。
+3. **「这次改了什么」必须真的去线上拉一次**。本机跑的 `js/changelog.js` 是**旧壳**里的，
+   线上新版本的条目它根本不知道。`fetchRemoteUpdates()` 给 URL 挂了个时间戳绕开
+   cache-first（`sw.js` 里对带查询串的同源请求直接透传，既不读也不写缓存 ——
+   不拦的话每点一次「获取更新」就往缓存里塞一份，白堆）。
+4. **「有没有新版本」和「有没有新条目」是两条独立的判据**，`paint()` 里取「或」：
+   `status === 'new'`（SW 那边真卡着新壳，这才是能真换上去的判据）或 `fresh` 非空。
+   作者忘了写日志、或者日志写了但壳没抓到，两种残缺都会发生。
+5. **`pendingUpdates()` 在「从没看过」或「看过的 id 已不在列表里」时，只能回退到最新那一条，
+   绝不能回退成「全部」** —— 否则第一次打开的用户在更新页会看到一整屏「新」。
+   用例里专门盯着这条。
 
-`updateNotice.test.mjs`（45 项，纯 node）守数据体检 + 三条判定规则 + 弹窗结构 + 记档；
-`verify-update-notice.mjs`（20 项，真浏览器 8791 + CDP 9341，出两张图）补的是替身碰不到的：
-「一打开就自动弹」这条链路、**真写进 localStorage 再真重载之后不再弹**、
-以及那颗 × 在真 DOM 里确实查不到（不是被 CSS 藏起来 —— 本项目在 `hidden` 上栽过一次）。
+`updateNotice.test.mjs`（61 项，纯 node）守数据体检 + 三条判定规则 + `newerUpdates` 的 id 比对
++ 更新页结构（按钮、「新」标、记档、忙态不抹图标）；
+`verify-update-notice.mjs`（19 项，真浏览器 8791 + CDP 9341，出 `shot-update-latest.png`）
+补的是替身碰不到的：**打开应用一个弹窗、一条提示都不冒**（等够 1200ms，把「慢半拍」也盖住）、
+真的走一遍 `registration.update()` 拿到「已经是最新版本」、以及「新」标在真 DOM 里的样子。
+`verify-pwa-update.mjs`（25 项，自带静态服务）验的是行为：**发了新版之后什么都不冒**，
+得用户自己进更新页去看、去点「立即更新」。
 
-> 想手验弹窗：把存档里 `ui.lastSeenUpdate` 改成空串再刷新（或者直接跑 `verify-update-notice.mjs`，
-> 它自己会播种、还会还原）。
+> 想手验：直接 `#/settings/updates`。真实用户那边「更新地址」就是存档里 `ui.lastSeenUpdate`
+> 停在旧 id（更新页会给那几条标「新」），不用改它也能看 —— 反正没有自动弹窗了。
+
+## 装到桌面的应用为什么老是拿不到新版
+
+**用户报的**：装到手机桌面后更新**有时能拿到、有时拿不到**；同一个地址在手机浏览器里没问题。
+
+**结论：不是「查不到新版」，是「装上了也换不上」。** 实测（本地副本模拟「发新版 = VERSION 加一 + 改一份 css」）：
+
+| 时点 | Service Worker 状态 |
+|---|---|
+| 发布前 | `active`，缓存只有 `somnus-v20` |
+| 发布后第 1 次打开 | **`waiting=installed`**（新壳装好了、卡着不启用），新旧两份缓存并存，页面仍由旧壳服务 |
+| 又打开一次 | 还是 `waiting` |
+| 紧接着再发一版 | 还是 `waiting`（但更新的那份也装上了 → **每次打开都查得到新版**，不存在「检查被缓存挡住」） |
+| **把所有窗口关掉再打开** | `waiting` 消失、缓存只剩新的那份 —— 这一刻才真换壳 |
+| **点「设置 → 获取更新 → 立即更新」** | 同一刻就能换壳（不用关窗口） |
+
+根因是三件事绑在一起：`sw.js` 对同源资源 cache-first；「丢掉整份旧壳」绑在新 SW 的
+**activate** 上；而 activate 又必须等**所有窗口都关光**。装到桌面的应用恰恰很少被真正关掉
+（安卓按 home 只是挂后台、从图标点回来**复用同一个文档**，连导航都没有 —— 于是连更新检查
+都不会发生），浏览器标签页却常被关或被系统回收。这就是「浏览器没事、装了应用就时好时坏」。
+
+`sw.js` 里那个 `message` → `skipWaiting()` 的监听**早就留好了，但全项目没人发过这条消息**。
+现在由 `js/pwa.js` 的 `applyUpdate()` 发出去 —— 只是发起者从「自动提示条」换成了
+**用户在设置页点的那颗「立即更新」**。
+
+| 位置 | 做了什么 |
+|---|---|
+| `js/pwa.js` | `checkForUpdates()`：`reg.update()` 强制查一次（绕开浏览器「24 小时最多查一次」的自动节流），再等新壳落到 `waiting`；`applyUpdate()` = 给 waiting 发 `skip-waiting` + `controllerchange` 后只重开一次 |
+| `js/views/settingsUpdates.js` | 唯一的入口：查到新壳就先把这次改了什么列出来，再由用户点「立即更新」 |
+| `sw.js` | `message` 里的 `skipWaiting()`；带查询串的同源请求不进缓存 |
+
+**「用户点一下才更新」是刻意的**：这是写作应用，**不偷偷刷新**
+（正在写的字不能被冲掉），也**不自动弹任何东西**。
+
+四条不写就会踩的：
+
+1. **`checkForUpdates()` 要等 `waiting`，不能看完 `update()` 就下结论**。刚 `update()` 完
+   新壳多半还在 `installing`，直接读 `reg.waiting` 会得到 null。要轮询到
+   `installing` 消失 / `waiting` 出现（`waitForWaiting()`），并且给足下载时间（8 秒）。
+2. **没有 Service Worker 的环境（`file://` 直接打开）必须给 `'unsupported'`**，
+   更新页要显示「要用 http 打开才能用」而不是沉默或报错。
+   **用户可能在启动刚完成、`register()` 还没解析时就点** —— 所以拿不到
+   `registration` 时要现问一次 `getRegistration()`，问不到才算 unsupported。
+3. **断言不能只看「点完拿到了新版资源」**（会假绿！）。壳对同源资源是
+   stale-while-revalidate，上一轮加载就已经把新 css 写回**旧缓存**了，于是单靠重开
+   也能读到新版资源、壳其实还卡在 `waiting`。`verify-pwa-update.mjs` 真正盯的是
+   「`waiting` 清了」「旧缓存被丢掉，只剩新壳那一份」—— 把 `postMessage('skip-waiting')`
+   删掉实测就红这两条。
+4. **启动态那两条断言要数「露头几次」而不是「此刻在不在」**。首次安装的误报会在
+   新壳 activate、`controllerchange` 触发时自己收掉，等断言去读时早看不见了 ——
+   和 api-gate 那次「闪一下的创作中」一模一样。脚本用
+   `Page.addScriptToEvaluateOnNewDocument` 播种一个 `MutationObserver` 数次数。
+
+**用例**：`pwaUpdate.test.mjs`（31 项，纯 node）守「接线」——每个环节断了都不报错、只是又回到
+「时好时坏」，只能靠读源码钉住（含 **SHELL ↔ 磁盘双向核对**，以及「不能再出现自动提示」的反向断言）；
+`verify-pwa-update.mjs`（25 项）是真机行为：**它自己起静态服务**（服务的是一份可写的临时副本
+`test/tmp/pwa-update/`，只在 CDP 9341 要外部起）—— 因为必须跑到一半时真的发布一次新版
+（换 VERSION + 改一份壳内资源 + **往 changelog 最前面插一条**），才验得到
+「用户不关窗口也能自己把新版拿下来」。最后那一步不能省：第 3 段「列得出这次改了什么」
+全靠线上比本地多出来的条目。
+
+有牙验证（都实测过）：
+`js/app.js` 里加回「启动 300ms 后弹个窗」→ 两个浏览器用例的第 1、2 段都红；
+删掉 `waiting.postMessage('skip-waiting')` → 第 4 段红 2 条（见上面第 3 条）；
+`publishVersion` 里不插 changelog 条目 → 第 3 段红。
+
+> **踩到的环境坑：`fs.cpSync` 复制目录会让 node 进程被直接杀掉**（退出码 127，
+> 不抛异常、连 `process.on('exit')` 都不跑，排查了很久）。`mkdirSync` + `copyFileSync`
+> 手写递归没事 —— 脚本里的 `copyDir()` 就是为这个写的。
 
 ## PWA 验证
 
@@ -396,8 +477,8 @@ node verify-api-gate.mjs      # 浏览器：没配 API 时不进「创作中」�
 node verify-inline-busy.mjs   # 浏览器：三处 AI 入口的按钮忙态 + 等待期可切页，62 项，顺带出四张图（服务 8791 + CDP 9341）
 node verify-chapter-rename.mjs # 浏览器：点章节名改名 + 虚线提示，18 项，顺带出两张图（服务 8777 + CDP 9333）
 node verify-cloud-backup.mjs  # 浏览器：云端备份上传/恢复 + 恢复不动外观，62 项，顺带出三张图（服务 8823 + CDP 9363）
-node verify-update-notice.mjs # 浏览器：更新弹窗自动出现 + 已阅后不再弹，20 项，顺带出两张图（服务 8791 + CDP 9341）
-node verify-pwa-update.mjs    # 浏览器：提示式更新（新壳卡 waiting → 提示条 → 点一下换壳），21 项，顺带出一张图（服务脚本自己起，只需 CDP 9341）
+node verify-update-notice.mjs # 浏览器：打开应用不弹任何东西 + 「获取更新」页，19 项，顺带出一张图（服务 8791 + CDP 9341）
+node verify-pwa-update.mjs    # 浏览器：主动获取更新（发新版后什么都不冒 → 自己去拿 → 点一下换壳），25 项，顺带出一张图（服务脚本自己起，只需 CDP 9341）
 node verify-prompt-sort.mjs   # 浏览器：提示词块长按拖动排序（真触摸事件 + 手机视口），31 项，顺带出一张图（服务 8791 + CDP 9341）
 node shot-fab-glow.mjs        # 出图：浅色/自定义橙/深色三张，肉眼比对
 ```
@@ -436,12 +517,15 @@ node shot-fab-glow.mjs        # 出图：浅色/自定义橙/深色三张，肉�
 页面不会重新执行模块，`load()` 也就读不到刚塞进去的存档，表现是「断言读到的是播种前那份空 state」
 （书的目录空白、星标按钮找不到），很容易误判成功能坏了。
 
-**播种时还要把 `ui.lastSeenUpdate` 写成当前最新那条更新的 id**（从 `js/changelog.js` 现取，
-别写死）。否则一打开应用「更新说明」弹窗会先占住 `#modal-root` —— 它 `dismissable:false`、
-只留「已阅」一条出路，凡是按文字找 `#modal-root .btn` / `.modal-body` 的断言都可能读到它。
-`verify-creation-book.mjs` 靠中途换 hash（每次路由重置都会 `closeAllModals()`）侥幸躲过去了，
-`verify-api-gate.mjs` 全程停在 `#/home` 没换过，就实打实地栽在这上面
-（「说清了缺的是 Key」读到的永远是更新说明的正文）。两边现在都播了这个字段。
+> **这段以前还有个附带的坑，现在不存在了**：那时播种时还得把 `ui.lastSeenUpdate` 写成
+> 当前最新那条更新的 id（从 `js/changelog.js` 现取、别写死），否则一打开应用「更新说明」弹窗
+> 会先占住 `#modal-root` —— 它 `dismissable:false`、只留「已阅」一条出路，凡是按文字找
+> `#modal-root .btn` / `.modal-body` 的断言都可能读到它。
+> `verify-creation-book.mjs` 靠中途换 hash（每次路由重置都会 `closeAllModals()`）侥幸躲过去了，
+> `verify-api-gate.mjs` 全程停在 `#/home` 没换过，就实打实地栽在这上面
+> （「说清了缺的是 Key」读到的永远是更新说明的正文）。
+> **应用现在不再自动弹任何东西**，三个脚本里的这段播种都跟着撤掉了 ——
+> 记着这个教训就行：**凡「自己冒出来的 UI」都会去抢 `#modal-root`，写断言前先想清楚它会不会挡路。**
 
 **`verify-api-gate.mjs`** 连 `8791` + CDP `9341`（和 `verify-creation-book.mjs` 同一套端口），
 在真浏览器里验「没配 API 时点生成剧情不进创作中」。它比 DOM 替身那条 `apiGate.test.mjs` 多守两处：
@@ -490,68 +574,6 @@ manifest 必填字段齐全、SW 进入 activated、**断网后 SPA 仍能渲染
 
 `pwaState.test.mjs` 是纯 node 断言（读源码文本，不起浏览器），
 验的是 `installState()` 的判定顺序 —— 见下面「安装入口不能等事件」。
-
-## 装到桌面的应用为什么老是拿不到新版（提示式更新）
-
-**用户报的**：装到手机桌面后更新**有时能拿到、有时拿不到**；同一个地址在手机浏览器里没问题。
-
-**结论：不是「查不到新版」，是「装上了也换不上」。** 实测（本地副本模拟「发新版 = VERSION 加一 + 改一份 css」）：
-
-| 时点 | Service Worker 状态 |
-|---|---|
-| 发布前 | `active`，缓存只有 `somnus-v19` |
-| 发布后第 1 次打开 | **`waiting=installed`**（新壳装好了、卡着不启用），v19 + v20 两份缓存并存，页面仍由旧壳服务 |
-| 又打开一次 | 还是 `waiting` |
-| 紧接着再发一版 | 还是 `waiting`（但 v21 也装上了 → **每次打开都查得到新版**，不存在「检查被缓存挡住」） |
-| **把所有窗口关掉再打开** | `waiting` 消失、缓存只剩 v21 —— 这一刻才真换壳 |
-
-根因是三件事绑在一起：`sw.js` 对同源资源 cache-first；「丢掉整份旧壳」绑在新 SW 的
-**activate** 上；而 activate 又必须等**所有窗口都关光**。装到桌面的应用恰恰很少被真正关掉
-（安卓按 home 只是挂后台、从图标点回来**复用同一个文档**，连导航都没有 —— 于是连更新检查
-都不会发生），浏览器标签页却常被关或被系统回收。这就是「浏览器没事、装了应用就时好时坏」。
-
-`sw.js` 里那个 `message` → `skipWaiting()` 的监听**早就留好了，但全项目没人发过这条消息** ——
-这次就是把它接上。
-
-| 位置 | 做了什么 |
-|---|---|
-| `js/pwa.js` | 盯 `waiting`（`updatefound` / `statechange` + 打开时就查一次 `reg.waiting`）；`visibilitychange` 时主动 `registration.update()`（补上「复用同一文档永远不检查」的洞，5 分钟节流）；`applyUpdate()` = 给 waiting 发 `skip-waiting` + `controllerchange` 后只重开一次 |
-| `js/components/updateBar.js` | 底部常驻「有新版本可用 / 立即更新」，可点 × 只静音本次会话 |
-| `js/app.js` | `mountUpdateBar()`，唯一挂载点 |
-| `css/components.css` | `.update-bar`（z-index 60，让所有弹窗都盖得住它）+ `.update-bar[hidden]` |
-| `sw.js` | `SHELL` 收 `updateBar.js`；补 v19 注释段 |
-
-「提示式」是刻意的：这是写作应用，**不偷偷刷新**（正在写的字不能被冲掉），只挂条提示等用户决定。
-
-四条不写就会踩的：
-
-1. **`updatefound` 在首次注册时收不到**。注册与安装是同一个动作，`register()` 解析时事件早发过了
-   → 所以 `watchRegistration()` 末尾要主动补一次 `trackIncoming(reg.installing)`。
-   漏了这行不影响使用（首次安装本来就不该提示），但会让「补一次」那条路完全没有兜底。
-2. **首次安装绝不能提示**，判据是 `worker.state === 'installed' && navigator.serviceWorker.controller`
-   —— 第一次安装时 controller 是空的（装完直接 activate）。这条**必须用 `__barSeen` 那种计数方式守**：
-   见下面第 3 条。
-3. **不能只断「某一刻提示条不可见」**（假绿）。首次安装的误报会在新壳 activate、
-   `controllerchange` 触发时被 `setUpdateReady(false)` 自己收掉，等断言去读时早看不见了 ——
-   和 api-gate 那次「闪一下的创作中」一模一样。所以脚本用
-   `Page.addScriptToEvaluateOnNewDocument` 播种一个 `MutationObserver`，**数整段时间里露头几次**。
-   实测：把 `&& navigator.serviceWorker.controller` 删掉，这条报「露头 1 次」。
-4. **`.update-bar[hidden] { display: none }` 不能省** —— `hidden` 压不过作者样式的 `display`，
-   这正是本项目在 `.modal-foot .btn` 上栽过的那个坑。
-
-**用例**：`pwaUpdate.test.mjs`（25 项，纯 node）守「接线」——每个环节断了都不报错、只是又回到
-「时好时坏」，只能靠读源码钉住（含 **SHELL ↔ 磁盘双向核对**）；`verify-pwa-update.mjs`（21 项）
-是真机行为：**它自己起静态服务**（服务的是一份可写的临时副本 `test/tmp/pwa-update/`，
-只在 CDP 9341 要外部起）—— 因为必须跑到一半时真的发布一次新版，才验得到
-「已装机的用户不关窗口也能拿到新版」。
-
-有牙验证（都实测过）：删掉 `waiting.postMessage('skip-waiting')` → 第 3 段 4 条红，其中
-「点完拿到了新版资源」是最关键的一条（只断「提示条出现了」是抓不到它的）；
-去掉 `&& navigator.serviceWorker.controller` → 「露头 1 次」红。
-
-> **踩到的环境坑：`fs.cpSync` 复制目录会让 node 进程被直接杀掉**（退出码 127，
-> 不抛异常、连 `process.on('exit')` 都不跑，排查了很久）。`mkdirSync` + `copyFileSync`
-> 手写递归没事 —— 脚本里的 `copyDir()` 就是为这个写的。
 
 ## 图标生成
 
@@ -692,7 +714,7 @@ const pick = (type) => pickCollection({ type, onPick: (it) => editor.insertChip(
   验证前必须 `getRegistrations().unregister()` + `caches.delete()`。
   > 反过来对部署也成立：**发新版本后用户要刷两次才拿到新代码**。这是 cache-first 的固有代价。
   > 装到桌面的用户更惨 —— 他们连「刷两次」都没有（从图标点回来是复用同一个文档）。
-  > 那条路现在由底部「有新版本可用」提示条兜着，见上面「装到桌面的应用为什么老是拿不到新版」。
+  > 那条路现在由「设置 → 获取更新 → 立即更新」兜着，见上面「装到桌面的应用为什么老是拿不到新版」。
 - **HTTP 缓存和 SW 缓存会互相"喂"旧内容**。SW 的后台更新如果走普通 `fetch(req)`，
   浏览器启发式缓存里那份旧响应会被原样写回 SW 缓存，cache-first 就永远收敛不到新版本 ——
   表现是「样式明明改对了，用户刷新多少次还是旧的」。所以后台更新用

@@ -1,23 +1,31 @@
 /**
- * 真浏览器验证「提示式更新」：新壳装好却卡在 waiting 时，底部出提示条；
- * 点一下就换壳并自动重开；点 × 只是静音、不切壳。
+ * 真浏览器验证「主动获取更新」这条路：**不再自动弹任何东西**，
+ * 用户去「设置 → 获取更新」点一下，才查得到新版、才看得到这次改了什么、才换壳重开。
  *
  * ── 为什么这个脚本自己起静态服务（其他 verify 脚本是外部起）────────────
- * 要验的是「已装机的用户**不关窗口**也能拿到新版」，就必须在跑到一半时
- * 真的发布一次新版（换 VERSION + 改一份壳内资源）。只有自己服务一份可写的
- * 副本，才做得到。服务的是仓库的临时副本 `test/tmp/pwa-update/`，
- * 跑完删掉，仓库文件一个都不动（`test/tmp/` 已在 .gitignore 里）。
+ * 要验的是「线上真的发了新版之后，用户不关窗口也能主动拿到」，就必须在跑到一半时
+ * 真的发布一次新版：换 VERSION + 改一份壳内资源 + **往 changelog 最前面插一条**。
+ * 最后这步尤其不能省 —— 「列出这次改了什么」靠的正是「线上比本地多出来的条目」，
+ * 线上不带新条目的话那条链路根本走不到。只有自己服务一份可写的副本才做得到。
+ * 服务的是仓库的临时副本 `test/tmp/pwa-update/`，跑完删掉，仓库文件一个都不动
+ *（`test/tmp/` 已在 .gitignore 里）。
  *
  * ── 依赖 ──────────────────────────────────────────────────────────
  * 只有 CDP 要外部起（服务由脚本自己起在 8799）：
  *   chrome --headless=new --disable-gpu --no-sandbox \
  *     --remote-debugging-port=9341 --user-data-dir=tmp/chrome about:blank
- * 产出：shot-update-bar.png（提示条出现的那一刻）
+ * 产出：shot-update-page.png（发现新版本那一刻）
  *
- * ── 有牙验证（改完记得自己跑一遍）──────────────────────────────────
- * 把 js/pwa.js 里 `waiting.postMessage('skip-waiting')` 删掉 → 第 5 步
- * 「点一下就拿到新版」整段必红（页面停在旧版）。这是这套改动的命门，
- * 断言必须落在「点击**之后**拿到了新版」，只断「提示条出现了」是抓不到它的。
+ * ── 有牙验证（改完记得自己跑一遍，三条都实测过）────────────────────
+ * 1) 在 js/app.js 里加回「启动后 300ms 弹个窗」（或把提示条挂回去）→
+ *    第 1、2 段「启动什么都不冒 / 整段时间一次都没露头」必红。
+ * 2) 把 js/pwa.js 里 `waiting.postMessage('skip-waiting')` 删掉（换成普通重开）→
+ *    第 4 段「waiting 清了 / 旧缓存被丢掉，只剩新壳那一份」必红。
+ *    ⚠️ 别只看「点完拿到了新版资源」那一条 —— 它**会假绿**：壳对同源资源是
+ *    stale-while-revalidate，上一轮加载就已经把新 css 写回旧缓存了，
+ *    于是单靠重开也能读到新版资源，壳其实还卡在 waiting。这两条才是命门。
+ * 3) 把 publishVersion 里「往 changelog 插一条」那步去掉 → 第 3 段
+ *    「列得出这次改了什么」必红。
  */
 
 import { WebSocket } from 'ws';
@@ -88,13 +96,35 @@ await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
 const tempFile = (p) => path.join(TEMP, p);
 const swVersion = () => /const VERSION = 'v(\d+)'/.exec(fs.readFileSync(tempFile('sw.js'), 'utf8'))[1];
 
-/** 发一次新版：改一份壳内资源 + 换 VERSION 缓存名（等价于 push.cmd 做的那步） */
+/** 这次发布带上的更新日志标题/正文，断言要用 */
+const probeTitle = (n) => `探针版本 ${n}`;
+const probeItem = (n) => `这是第 ${n} 次发布才有的内容`;
+
+/**
+ * 发一次新版，一步不落地照真实发布来：
+ *   1) 改一份壳内资源（css 里挂个 `--probe-ver`，用来确认页面真的换到新版了）
+ *   2) 往 changelog 的**最前面**插一条 —— 「列出这次改了什么」全靠它
+ *   3) 换 VERSION 缓存名（等价于 push.cmd 做的那步）
+ */
 function publishVersion(n) {
   const cssPath = tempFile('css/base.css');
   const css = fs.readFileSync(cssPath, 'utf8').replace(/\n:root\{--probe-ver:\d+\}\n/g, '');
   fs.writeFileSync(cssPath, `${css}\n:root{--probe-ver:${n}}\n`);
+
+  const clPath = tempFile('js/changelog.js');
+  const cl = fs.readFileSync(clPath, 'utf8');
+  const marker = 'export const CHANGELOG = [\n';
+  const entry = '  {\n'
+    + `    id: 'probe${n}',\n`
+    + "    date: '2026-10-06',\n"
+    + `    title: '${probeTitle(n)}',\n`
+    + `    items: ['${probeItem(n)}']\n`
+    + '  },\n';
+  fs.writeFileSync(clPath, cl.replace(marker, marker + entry));
+
   const sw = fs.readFileSync(tempFile('sw.js'), 'utf8');
-  fs.writeFileSync(tempFile('sw.js'), sw.replace(/const VERSION = 'v(\d+)'/, (_, d) => `const VERSION = 'v${Number(d) + 1}'`));
+  fs.writeFileSync(tempFile('sw.js'),
+    sw.replace(/const VERSION = 'v(\d+)'/, (_, d) => `const VERSION = 'v${Number(d) + 1}'`));
 }
 
 /* ---------------- CDP ---------------- */
@@ -125,7 +155,7 @@ const ev = async (expr) => {
   } catch { return undefined; }
 };
 
-async function waitFor(fn, ms = 12000, step = 250) {
+async function waitFor(fn, ms = 15000, step = 250) {
   const until = Date.now() + ms;
   for (;;) {
     const v = await fn();
@@ -154,30 +184,21 @@ const swState = () => ev(`(async () => {
   };
 })()`);
 
-const barState = () => ev(`(() => {
-  const b = document.querySelector('.update-bar');
-  if (!b) return { exists: false };
-  return {
-    exists: true,
-    hidden: b.hidden,
-    display: getComputedStyle(b).display,
-    text: b.textContent,
-    btn: (b.querySelector('.btn') || {}).textContent || ''
-  };
-})()`);
+/** 界面上那些「自己冒出来」的东西，一个都不该有 */
+const noise = () => ev(`({
+  bar: !!document.querySelector('.update-bar'),
+  modal: !!document.querySelector('#modal-root .modal-root'),
+  seen: window.__noise || null
+})`);
 
-const visible = async () => {
-  const s = await barState();
-  return s.exists && !s.hidden && s.display !== 'none';
-};
-
+const upState = () => ev(`(document.querySelector('#view .up-state') || {}).textContent || ''`);
 const shot = async (name) => {
   const r = await send('Page.captureScreenshot', { format: 'png' });
   fs.writeFileSync(fileURLToPath(new URL(`./${name}`, import.meta.url)), Buffer.from(r.result.data, 'base64'));
 };
 
 /** 真鼠标点击某个元素的正中心，并先确认那一点上真的能摸到它 */
-async function clickEl(selector) {
+async function clickEl(selector, inside) {
   const box = await ev(`(() => {
     const el = document.querySelector(${JSON.stringify(selector)});
     if (!el) return null;
@@ -189,9 +210,9 @@ async function clickEl(selector) {
   const hit = await ev(`(() => {
     const el = document.elementFromPoint(${box.x}, ${box.y});
     if (!el) return 'null';
-    return el.closest('.update-bar') ? 'in-bar' : (el.className || el.tagName);
+    return el.closest(${JSON.stringify(inside)}) ? 'target' : (el.className || el.tagName);
   })()`);
-  if (hit !== 'in-bar') return { hit };
+  if (hit !== 'target') return { hit };
 
   const base = { x: box.x, y: box.y, button: 'left', clickCount: 1 };
   await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...base });
@@ -202,8 +223,6 @@ async function clickEl(selector) {
 
 /* ---------------- 开跑 ---------------- */
 
-const { CHANGELOG } = await import('../js/changelog.js');
-const newestId = CHANGELOG[0].id;
 const V1 = `v${swVersion()}`;
 
 try {
@@ -214,69 +233,81 @@ try {
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
 
   /*
-   * 从 document 一建起来就盯着提示条「有没有出现过」。
-   *
-   * 只断言「某一刻它不可见」是抓不到首次安装误报的：那种误报会在
-   * 新壳 activate、controllerchange 触发时被自己收掉，等我们去读时早看不见了
-   * （和 api-gate 那次「闪一下的创作中」是同一类假绿）。所以数整段时间里
-   * 出现过几次 —— 闪一下也算。
+   * 从 document 一建起来就盯着「有没有东西自己冒出来」。
+   * 只断言「某一刻界面上没有」是抓不到一闪而过的弹窗的（那种误报会自己收掉），
+   * 所以数整段时间里露头几次 —— 闪一下也算。老代码里 APP 挂的正是
+   * 底部提示条 + 300ms 后自动弹的更新说明。
    */
   await send('Page.addScriptToEvaluateOnNewDocument', { source: `
-    window.__barSeen = 0;
+    window.__noise = { bar: 0, modal: 0 };
     new MutationObserver(() => {
-      const b = document.querySelector('.update-bar');
-      if (b && !b.hidden) window.__barSeen++;
-    }).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden'] });
+      if (document.querySelector('.update-bar')) window.__noise.bar++;
+      if (document.querySelector('#modal-root .modal-root')) window.__noise.modal++;
+    }).observe(document, { childList: true, subtree: true, attributes: true });
   ` });
 
-  console.log(`\n== [1] 干净起步：清掉旧 SW / 缓存，播种「更新说明已阅」 ==`);
+  console.log('\n== [1] 干净起步：清掉旧 SW / 缓存，确认启动什么都不冒 ==');
   await send('Page.navigate', { url: APP });
   await sleep(1600);
-  // 浏览器 profile 是复用的，里面可能已有 SW 与缓存 —— 同源资源 cache-first，
-  // 不清会一直跑上一轮留下的代码。另外要把「更新说明」弹窗摁掉（它 z-index 100、
-  // 盖在提示条 z-index 60 上面，不播这一下所有点击都会打在遮罩上）。
+  // 浏览器 profile 是复用的，里面可能已有 SW 与缓存 —— 同源资源 cache-first，不清会跑旧代码
   await ev(`(async () => {
-    const k = 'somnus_state_v1';
-    const s = JSON.parse(localStorage.getItem(k) || '{}');
-    s.ui = Object.assign({ composeOpen: false }, s.ui || {}, { lastSeenUpdate: ${JSON.stringify(newestId)} });
-    localStorage.setItem(k, JSON.stringify(s));
     for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();
     for (const key of await caches.keys()) await caches.delete(key);
     return 1;
   })()`);
   await send('Page.reload', {});
-  await sleep(2500);
+  await sleep(2600);
 
   const s1 = await swState();
   ok('SW 已注册并 activate', s1.hasReg && s1.active === 'activated', JSON.stringify(s1));
   ok('页面已被 SW 接管', s1.controlled === true);
   ok('启动时没有待启用的新壳', s1.waiting === null && s1.installing === null, JSON.stringify(s1));
   ok('页面是 v1（读不到探针版本号）', (await pageVersion()) !== '2', await pageVersion());
-  ok('没有任何提示条（新用户不该看到「有新版本」）', !(await visible()), JSON.stringify(await barState()));
-  ok('整段时间里提示条一次都没露过头（首次安装不是「有新版」）',
-    (await ev('window.__barSeen')) === 0, `露头 ${await ev('window.__barSeen')} 次`);
+  const n1 = await noise();
+  ok('界面上没有提示条', !n1.bar, JSON.stringify(n1));
+  ok('启动没有弹窗', !n1.modal, JSON.stringify(n1));
 
-  console.log(`\n== [2] 发布新版（${V1} -> v${Number(V1.slice(1)) + 1}），不关窗口重新打开 ==`);
+  console.log(`\n== [2] 发布新版（${V1} -> v${Number(V1.slice(1)) + 1}），重开：**什么都不该冒出来** ==`);
   publishVersion(2);
   const after = `v${swVersion()}`;
   await send('Page.reload', {});
-  await sleep(3000);
+  await sleep(3200);
 
   const s2 = await swState();
   ok('前提成立：新壳装好了，但卡在 waiting 没接手',
     s2.waiting === 'installed' && s2.active === 'activated', JSON.stringify(s2));
-  ok('页面拿到的还是旧版（提示条出现 ≠ 已经更新好）',
-    (await pageVersion()) !== '2', await pageVersion());
-  ok('底部出现了「有新版本可用」', await visible(), JSON.stringify(await barState()));
-  const b2 = await barState();
-  ok('文案是「有新版本可用」', (b2.text || '').includes('有新版本可用'), b2.text);
-  ok('按钮是「立即更新」', (b2.btn || '').trim() === '立即更新', b2.btn);
-  await shot('shot-update-bar.png');
+  ok('页面拿到的还是旧版（没偷偷更新）', (await pageVersion()) !== '2', await pageVersion());
+  const n2 = await noise();
+  ok('新壳就绪了，界面上依然没有提示条（以前这里会挂一条）', !n2.bar, JSON.stringify(n2));
+  ok('新壳就绪了，也没有弹窗（以前这里会弹更新说明）', !n2.modal, JSON.stringify(n2));
+  ok('整段时间里这两样一次都没露过头',
+    n2.seen && n2.seen.bar === 0 && n2.seen.modal === 0, JSON.stringify(n2.seen));
 
-  console.log('\n== [3] 点「立即更新」：切壳 + 自动重开，并且真的拿到新版 ==');
-  const cl = await clickEl('.update-bar .btn');
-  ok('那一点上真的摸得到按钮（没被弹窗之类盖住）', cl.hit === 'in-bar', cl.hit);
-  const gotNew = await waitFor(async () => (await pageVersion()) === '2', 15000);
+  console.log('\n== [3] 设置 → 获取更新：查出来的是新版，而且列得出这次改了什么 ==');
+  await ev(`location.hash = '#/settings/updates'`);
+  await sleep(800);
+  ok('页面标题是「更新」',
+    (await ev(`(document.querySelector('#view .tb-title') || {}).textContent || ''`)).includes('更新'),
+    await ev(`(document.querySelector('#view .tb-title') || {}).textContent || ''`));
+
+  const settled = await waitFor(async () => {
+    const t = await upState();
+    return t && !t.includes('正在检查') && t !== '看看有没有新版本' ? t : '';
+  }, 15000);
+  ok('查出的结论是「发现新版本」', (settled || '').includes('发现新版本'), settled);
+
+  const vtext = await ev(`document.querySelector('#view').textContent`);
+  ok('列出了这次新增的标题', (vtext || '').includes(probeTitle(2)), vtext);
+  ok('列出了这次新增的正文（这才是「具体内容」）', (vtext || '').includes(probeItem(2)), vtext);
+  ok('有「立即更新」按钮', await ev(`!!document.querySelector('#view .up-go')`));
+  ok('说了更新后会自动重开',
+    (vtext || '').includes('自动重新打开'), vtext);
+  await shot('shot-update-page.png');
+
+  console.log('\n== [4] 点「立即更新」：切壳 + 自动重开，并且真的拿到新版 ==');
+  const cl = await clickEl('#view .up-go', '.up-go');
+  ok('那一点上真的摸得到按钮', cl.hit === 'target', cl.hit);
+  const gotNew = await waitFor(async () => (await pageVersion()) === '2', 20000);
   ok('点完页面自动重开，并且拿到了新版资源', gotNew === true, `pidVer=${await pageVersion()}`);
 
   const s3 = await waitFor(async () => {
@@ -285,23 +316,31 @@ try {
   }, 8000);
   ok('waiting 清了（新壳已接手）', !!s3 && s3.waiting === null, JSON.stringify(s3));
   ok('旧缓存被丢掉，只剩新壳那一份',
-    !!s3 && s3.caches.length === 1 && s3.caches[0] === `somnus-${after}`,
-    s3 && s3.caches.join(','));
-  ok('提示条收掉了', !(await visible()), JSON.stringify(await barState()));
+    !!s3 && s3.caches[0] === `somnus-${after}`, s3 && s3.caches.join(','));
 
-  console.log('\n== [4] 再发一版，点 × 只静音、不切壳 ==');
+  // 新版已经生效，那条更新日志也该跟着进到本机了
+  await ev(`location.hash = '#/settings/updates'`);
+  await sleep(900);
+  const afterText = await ev(`document.querySelector('#view').textContent`);
+  ok('新版生效后，那条更新日志已经进了本机的历史列表',
+    (afterText || '').includes(probeTitle(2)), afterText);
+
+  console.log('\n== [5] 再发一版：还是要用户自己去拿 ==');
   publishVersion(3);
   await send('Page.reload', {});
-  await sleep(3000);
-  ok('提示条又出现了（新一轮更新照样提）', await visible(), JSON.stringify(await barState()));
-  const clx = await clickEl('.update-bar .up-x');
-  ok('× 点得到', clx.hit === 'in-bar', clx.hit);
-  await sleep(600);
-  ok('点完 × 提示条收起来了', !(await visible()), JSON.stringify(await barState()));
-  ok('但页面还停在上一版，没有偷偷更新（× 不是「立即更新」的马甲）',
-    (await pageVersion()) === '2', await pageVersion());
-  const s4 = await swState();
-  ok('新壳仍在 waiting 里等着', s4.waiting === 'installed', JSON.stringify(s4));
+  await sleep(3200);
+  const n5 = await noise();
+  ok('又发了新版，界面上照样什么都不冒', !n5.bar && !n5.modal, JSON.stringify(n5));
+
+  await ev(`location.hash = '#/settings/updates'`);
+  await sleep(800);
+  const settled5 = await waitFor(async () => {
+    const t = await upState();
+    return t && t.includes('发现新版本') ? t : '';
+  }, 15000);
+  ok('主动进来查得到这一版', !!settled5, settled5);
+  const vtext5 = await ev(`document.querySelector('#view').textContent`);
+  ok('列的是这一版的新增内容', (vtext5 || '').includes(probeItem(3)), vtext5);
 
   console.log(`\n===== ${pass} passed, ${fail} failed =====`);
 } finally {

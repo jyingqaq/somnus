@@ -493,9 +493,9 @@
 
 .alert-msg { font-size: calc(14.5px * var(--fs)); line-height: 1.65; color: var(--dim); padding: 2px 0 12px; word-break: break-word; }
 
-/* ================= 更新说明 / 更新日志 ================= */
-/* 弹窗（js/services/updateNotice.js）与「设置 → 更新日志」页（views/settingsUpdates.js）
-   共用同一份结构，只有外层容器的内边距不同，所以两处都写在这里。 */
+/* ================= 更新日志 ================= */
+/* 「设置 → 获取更新」页的历史列表与「这次的新内容」共用同一份结构
+   （js/services/updateNotice.js 的 updateItem），只有外层容器的内边距不同。 */
 .un-item { padding: 2px 0 10px; }
 .un-item + .un-item { margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--line); }
 .un-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
@@ -613,42 +613,22 @@
 @keyframes toastInTop { from { opacity: 0; transform: translateY(-10px) scale(.96); } }
 @keyframes toastOut { to { opacity: 0; transform: translateY(6px) scale(.97); } }
 
-/* ================= 新版本提示条 ================= */
-/*
- * 常驻在底部导航上方（js/components/updateBar.js）。
- * z-index 60：压过 tabbar(50) 与页面内容，但让每个弹窗(100+)都能盖住它 ——
- * 用户正在填表单时提示条不该浮在弹窗上面。
- * 位置和 toast 撞在一起是有意的：toast 是 1.8 秒就走的轻提示，
- * 而且它 z-index 200 更高，短暂遮一下可以接受。
- */
-.update-bar {
-  position: fixed;
-  left: 12px; right: 12px;
-  bottom: calc(var(--nav-h) + var(--safe-b) + 12px);
-  z-index: 60;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  background: var(--surface);
-  box-shadow: var(--shadow);
-  animation: toastIn .2s ease;
-}
-/* hidden 压不过作者样式的 display（本项目在 .modal-foot .btn 上栽过一次），
-   自己补一条，否则「关掉」之后它照样亮着 */
-.update-bar[hidden] { display: none; }
-.up-ico { flex: none; color: var(--accent); }
-.up-text {
-  flex: 1;
-  min-width: 0;
-  font-size: calc(14px * var(--fs));
-}
-.up-x {
-  flex: none;
-  display: inline-flex;
-  padding: 4px;
+/* ================= 获取更新（settings → updates） ================= */
+/* 更新是用户主动来拿的：这一页就是入口。上面一张卡管「查 / 更」，下面一张列历史。 */
+.up-body { padding: 14px; }
+.up-state { font-size: calc(13.5px * var(--fs)); line-height: 1.6; color: var(--dim); }
+/* 有新版本时才填东西进来；空着的时候别留出空隙 */
+.up-extra:not(:empty) { padding-top: 12px; }
+/* 「这次改了什么：」——把新条目和上面那句结论接上 */
+.up-lead { font-size: calc(13px * var(--fs)); font-weight: 600; padding-bottom: 6px; }
+.up-new { margin-bottom: 12px; }
+/* 两颗按钮之间也留出距离：有新版时「立即更新」压在「获取更新」上方 */
+.up-go { width: 100%; }
+.up-get { margin-top: 12px; }
+.up-hint {
+  padding-top: 9px;
+  font-size: calc(12.5px * var(--fs));
+  line-height: 1.55;
   color: var(--dim);
 }
 
