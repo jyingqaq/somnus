@@ -56,9 +56,24 @@ export function render({ params }) {
       icon: 'trash',
       kind: 'danger',
       onClick: async () => {
-        const ok = await showConfirm({ title: '删除', message: item.title });
+        /*
+         * 删创作**只删创作，不动书架**。
+         *
+         * 书架里那本是从这条创作存下来的存档：用户多半已经接着往下写了
+         * （续写过章节、写过评论），跟着一起删就是顺手毁掉更多东西；
+         * 而他点的是「把首页这条清掉」，不是「把这本书也扔了」。
+         * 想把书也从书架拿走，去书架里删那一本（那条路走 store.removeBooks）。
+         *
+         * 反过来不成立：书架里删书仍然要清掉创作上的收藏指针 —— 那是 removeBooks 的事，
+         * 这里不能调它，否则又变成一删俱删。删完创作，书留在书架里当一本独立的书，
+         * 指针也无所谓了（创作本身没了）。
+         */
+        const ok = await showConfirm({
+          title: '删除',
+          // 收藏过的要当面说清楚：删的是首页这条，书架里那本不动 —— 否则用户不敢点
+          message: collected ? `只删除这条创作，书架里的《${item.title}》会保留` : item.title
+        });
         if (!ok) return;
-        store.removeBooks(item.bookId);
         store.remove('creations', item.id);
         navigate('/home');
       }

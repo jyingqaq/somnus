@@ -269,6 +269,50 @@ eq('取消后书架里那本书没了', store.list('books').some((b) => b.id ===
 eq('取消后创作的 bookId 被清空', store.get('creations', item.id).bookId, '');
 eq('取消后 isCollected 为假', store.isCollected(store.get('creations', item.id)), false);
 
+/* ================= 删除创作：只删创作，书架那本要留下 ================= */
+/*
+ * 出过的问题：收藏之后回首页把那条创作删掉，书架里那本会**跟着一起没**。
+ * 结果是首页的创作列表越堆越长 —— 谁也不敢删，删一次就把存在书架里的稿子
+ * （可能已经续写过章节、写过评论）一起赔进去。
+ *
+ * 规矩：删创作 = 只删创作。想连书一起删，去书架里删那一本。
+ * 注意别再顺手调 store.removeBooks(item.bookId) —— 那是「删书顺带清指针」的方向。
+ */
+console.log('\n== 界面：删除创作只删创作，书架那本要留下 ==');
+const item4 = store.add('creations', { title: '删了别动书架', request: '要求', content: '正文。' });
+const book4 = store.collectCreation(item4);
+eq('先收藏到书架', store.isCollected(store.get('creations', item4.id)), true);
+
+const page4 = render({ params: { id: item4.id } });
+const barBtns4 = barActions(page4);
+eq('顶栏还是收藏 + 删除两个按钮', barBtns4.length, 2);
+
+barBtns4[1].dispatch('click');   // 右边那颗是删除
+const modal4 = roots.get('modal-root');
+ok('弹出删除确认框', !!btnByText(modal4, '删除'));
+ok('确认框里交代了书架那本会保留', (modal4.textContent || '').includes('保留'), modal4.textContent);
+btnByText(modal4, '删除').dispatch('click');
+await sleep(0);
+
+ok('创作从库里删掉了', !store.get('creations', item4.id));
+ok('书架那本还在（以前会被一起删掉）',
+  store.list('books').some((b) => b.id === book4.id),
+  JSON.stringify(store.list('books').map((b) => b.title)));
+eq('书的内容一个字没动', store.get('books', book4.id).chapters[0].content, '正文。');
+eq('书名也没被改', store.get('books', book4.id).title, '删了别动书架');
+
+console.log('\n== 边界：没收藏过的创作，删掉不碰书架 ==');
+const before5 = store.list('books').length;
+const item5 = store.add('creations', { title: '从没收藏过', request: '要求', content: '正文。' });
+const barBtns5 = barActions(render({ params: { id: item5.id } }));
+barBtns5[1].dispatch('click');
+const modal5 = roots.get('modal-root');
+ok('未收藏时确认框不提「保留」', !(modal5.textContent || '').includes('保留'), modal5.textContent);
+btnByText(modal5, '删除').dispatch('click');
+await sleep(0);
+ok('创作删掉了', !store.get('creations', item5.id));
+eq('书架一本没多也一本没少', store.list('books').length, before5);
+
 /* ================= 收藏指针 ⇄ 书架，双向都别留残影 ================= */
 /* 这次真正修掉的就是这一段：只删 books、不管 creations[].bookId 的话，
    首页那条创作会一直挂着「已收藏」的书签图标，点进详情却是空星标。 */

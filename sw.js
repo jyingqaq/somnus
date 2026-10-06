@@ -65,8 +65,13 @@
  * 以前书架里删掉书之后 creations[].bookId 会变成悬空指针，首页那条创作仍然挂着
  * 「已收藏」的书签图标、点进详情却是空星标。换缓存名的理由同 v6：旧壳里的 home.js
  * 只看 bookId 有没有值，这一轮不换壳，用户看到的还是那个自相矛盾的图标。
+ *
+ * v18：删创作不再连带删书架（js/views/creation.js，另见 js/store.js 里 removeBooks
+ * 的注释）。以前在创作详情里点删除会 store.removeBooks(item.bookId)，书架里收藏的那本
+ * 跟着一起没 —— 用户就不敢删首页的条目，列表越堆越长。现在只删创作，书留在书架里。
+ * 换缓存名的理由同 v6：旧壳里的 creation.js 删一下还是「一删俱删」，不换壳就白改。
  */
-const VERSION = 'v18';
+const VERSION = 'v19';
 const CACHE = `somnus-${VERSION}`;
 /* 应用壳：与 index.html 实际引用的文件保持一致 */
 const SHELL = [

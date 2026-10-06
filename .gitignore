@@ -1,0 +1,38 @@
+# ── 入库规则（这个仓库之前没有 .gitignore）────────────────────────────
+# 原则：入库的只有「应用本身 + 测试脚本 + 让测试跑起来的最小依赖」，
+# 凡是跑一次就能再生成的中间产物，一律挡在外面。
+
+# 系统 / 编辑器垃圾
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Python 缓存（test/make-icons.py、make-sample-docx.py 跑出来的）
+__pycache__/
+*.pyc
+
+# 临时 / 备份文件
+*.tmp
+*.log
+*.bak
+*.orig
+*.rej
+*~
+*.swp
+
+# 临时复现脚本：test/ 下划线开头的都不入库（现场查问题用的，查完就该删）
+test/_*.mjs
+
+# 真机验证的产出图：verify-*.mjs / shot-*.mjs 每次跑都会重新出图，不入库。
+# 想看某次验证的界面对照，起服务 + 无头浏览器重跑对应脚本即可。
+test/shot-*.png
+
+# 无头浏览器的工作目录（--user-data-dir）
+tmp/
+.chrome*/
+
+# ── 注意：下面这些「看着像该忽略、其实故意入库」，别手贱加进来 ──────────
+#   test/node_modules/  —— 只装了 ws 一个包（20 个文件），专门入库的，
+#                          好让真机验证脚本 clone 下来直接能跑，不用先 npm install。
+#   test/*.docx         —— docImport 测试的输入样例，make-sample-docx.py 的产物，
+#                          但它是「测试数据」不是「缓存」，必须跟着仓库走。

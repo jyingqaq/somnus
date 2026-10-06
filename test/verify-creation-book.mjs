@@ -4,7 +4,9 @@
  * 依赖：静态服务 8791 + CDP 9341
  *   python -m http.server 8791 --bind 127.0.0.1
  *   chrome --headless=new --disable-gpu --no-sandbox --remote-debugging-port=9341 --user-data-dir=tmp/chrome about:blank
- * 产出：shot-creation-book-chapter1.png（书的目录，第一章应显示「第1章」）
+ * 产出：shot-creation-book-chapter1.png（书的目录，第一章应显示「第1章」）、
+ *      shot-creation-book-delete-confirm.png（删创作的确认框，应写明书架那本会保留）、
+ *      shot-creation-book-after-delete.png（删完创作后的书架，那本还应在）
  *
  * 要真浏览器的理由：这条链路一头是 localStorage 里的真实存档（迁移逻辑要对真存档生效），
  * 一头是「点星标 → 弹确认框 → 点收藏 → 重渲染」的整条界面流程；
@@ -195,6 +197,39 @@ ok('星标回到空心', (await starFill()) === 'none', await starFill());
 await ev(`location.hash = '#/home'`);
 await sleep(700);
 ok('首页书签图标也没了', !(await homeBookmark()));
+
+console.log('\n== 删除创作：只删创作，书架那本要留下 ==');
+/*
+ * 用户报的问题：收藏之后回首页把那条创作删掉，书架里那本会跟着一起没 ——
+ * 于是首页的创作列表越堆越长，谁也不敢删。这条链路在 DOM 替身里跑通了，
+ * 但真浏览器里走的是「点删除 → 弹确认框 → 重渲染 + 路由跳回首页」，得实测。
+ */
+await ev(`location.hash = '#/creation/cr1'`);
+await sleep(700);
+await ev(`document.querySelector('.tb-right .tb-btn').click()`);
+await sleep(300);
+ok('先把这条创作重新收藏起来', await clickByText('#modal-root .btn', '收藏'));
+await sleep(900);
+ok('书架上有「星海归途」了', (await bookTitles()).includes('星海归途'), JSON.stringify(await bookTitles()));
+
+await ev(`document.querySelector('.tb-right .tb-btn.danger').click()`);
+await sleep(300);
+const delBtns = await ev(`[...document.querySelectorAll('#modal-root .btn')].map((n) => n.textContent.trim())`);
+ok('删除确认框是「取消 / 删除」', delBtns.join('|') === '取消|删除', JSON.stringify(delBtns));
+ok('确认框里交代了书架那本会保留', await ev(
+  `(document.querySelector('#modal-root .alert-msg') || {}).textContent.includes('保留')`));
+await shot('shot-creation-book-delete-confirm.png');
+await clickByText('#modal-root .btn', '删除');
+await sleep(900);
+
+ok('首页那条创作没了', !(await ev(
+  `JSON.parse(localStorage.getItem('somnus_state_v1')).creations.some((c) => c.id === 'cr1')`)));
+ok('书架那本还在（以前会被一起删掉）', (await bookTitles()).includes('星海归途'), JSON.stringify(await bookTitles()));
+await ev(`location.hash = '#/shelf'`);
+await sleep(700);
+const shelfAfter = await ev(`[...document.querySelectorAll('.card .list .row-title')].map((n) => n.textContent.trim())`);
+ok('书架列表里还能看到「星海归途」', shelfAfter.includes('星海归途'), JSON.stringify(shelfAfter));
+await shot('shot-creation-book-after-delete.png');
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 ws.close();
