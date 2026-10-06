@@ -59,8 +59,14 @@
  * 改动 js/app.js · js/components/modal.js · js/views/settings.js · css/components.css）。
  * 换缓存名同 v6：这份更新日志本身就要靠新壳发到用户手里，而且旧壳里的 modal.js
  * 没有 closable 选项 —— 混用会出现「× 还在、点掉不算已阅、下次又弹」。
+ *
+ * v17：「收藏」的判据与收尾收进了 store（js/store.js 新增 collectedBook / isCollected /
+ * collectCreation / uncollectCreation / removeBooks，并改动 js/views/{home,creation,shelf}.js）。
+ * 以前书架里删掉书之后 creations[].bookId 会变成悬空指针，首页那条创作仍然挂着
+ * 「已收藏」的书签图标、点进详情却是空星标。换缓存名的理由同 v6：旧壳里的 home.js
+ * 只看 bookId 有没有值，这一轮不换壳，用户看到的还是那个自相矛盾的图标。
  */
-const VERSION = 'v16';
+const VERSION = 'v18';
 const CACHE = `somnus-${VERSION}`;
 /* 应用壳：与 index.html 实际引用的文件保持一致 */
 const SHELL = [

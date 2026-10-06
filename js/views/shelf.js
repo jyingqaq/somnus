@@ -42,7 +42,9 @@ export function render() {
               if (!picked.size) return;
               const ok = await showConfirm({ title: '删除书籍', message: `共 ${picked.size} 本` });
               if (!ok) return;
-              store.remove('books', [...picked]);
+              // 走 removeBooks：删书的同时把创作上指向它的收藏指针清掉，
+              // 否则首页那条创作会一直挂着「已收藏」的书签图标（详见 store.js）
+              store.removeBooks([...picked]);
               toast('已删除');
               exitSelect();
             }

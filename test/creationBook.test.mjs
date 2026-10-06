@@ -1,16 +1,23 @@
 /**
- * 「收藏到书架」的命名冒烟测试。
+ * 「收藏到书架」的命名与收藏指针同步。
  *
- * 守的是一条容易搞反的规则：**首页标题输入框里填的那个名字是书名**，
- * 文章正文进第 1 章，章节名固定「第1章」。
+ * 守两条容易搞反 / 搞丢的规则：
  *
- * 之前是拿创作标题同时当书名和第一章名 —— 打开书看到的是「一本书 + 一个同名的章节」，
- * 目录里也对不上后面「续写」默认的「第2章」「第3章」。
+ * 1) **首页标题输入框里填的那个名字是书名**，文章正文进第 1 章，章节名固定「第1章」。
+ *    之前是拿创作标题同时当书名和第一章名 —— 打开书看到的是「一本书 + 一个同名的章节」，
+ *    目录里也对不上后面「续写」默认的「第2章」「第3章」。
+ *
+ * 2) **「收藏」这根指针只有一个判据、一条收尾**（`store.collectedBook` /
+ *    `isCollected` / `collectCreation` / `uncollectCreation` / `removeBooks`）。
+ *    从前 `creations[].bookId` 只在收藏那一刻写过，书架里把书删掉之后它就悬空了：
+ *    首页那条创作一直挂着「已收藏」的书签图标，点进详情却是空星标，两处自相矛盾；
+ *    再点一次收藏还会凭空多出一本同名的书。
  *
  * 两种跑法，缺一不可：
- * 1) 直接调 `store.addBookFromCreation`，断言写进去的那本书长什么样；
- * 2) 用最小 DOM 替身跑**真实的** `creation.render()`，点星标 → 确认框点「收藏」，
- *    整条界面链路走完再断言 —— 只测 store 的话，页面自己在视图里另拼一份参数也测不出来。
+ * 1) 直接调 `store.*`，断言数据层写对；
+ * 2) 用最小 DOM 替身跑**真实的** `creation.render()`，点星标 → 确认框点「收藏」/
+ *    「取消收藏」，整条界面链路走完再断言 —— 只测 store 的话，页面自己在视图里
+ *    另拼一份参数也测不出来。
  */
 
 const mem = new Map();
@@ -227,19 +234,70 @@ eq('正文进第 1 章', saved.chapters[0].content, '正文内容。');
 eq('简介是创作时的详细要求', saved.intro, '要求：第一人称');
 eq('创作条目记下了 bookId', store.get('creations', item.id).bookId, saved.id);
 
-console.log('\n== 界面：取消收藏不动书架 ==');
+console.log('\n== 界面：取消收藏真的把书从书架删掉 ==');
+/*
+ * 这一段以前点的是弹窗里的「取消」—— 也就是「什么都不做」，于是「书架本书不变」
+ * 这条断言永远成立：看着像守了取消收藏，其实一次都没碰到那条路径。
+ * 现在两个按钮都认准：真动作是「取消收藏」，另一颗叫「再想想」
+ * （默认那个「取消」跟「取消收藏」并排时一眼分不清哪颗才是真动作）。
+ */
 const page2 = render({ params: { id: item.id } });
 const barBtns2 = barActions(page2);
 ok('已收藏时星标是实心的', (icoOf(barBtns2[0]).innerHTML || '').includes('fill="currentColor"'),
   icoOf(barBtns2[0]).innerHTML);
-const count2 = store.list('books').length;
+
 barBtns2[0].dispatch('click');
-const cancelBtn = btnByText(roots.get('modal-root'), '取消');
-ok('已收藏时再点弹出取消收藏确认', !!cancelBtn);
-cancelBtn.dispatch('click');
+const modal2 = roots.get('modal-root');
+ok('已收藏时弹出的确认框里有「取消收藏」', !!btnByText(modal2, '取消收藏'));
+ok('确认框另一颗是「再想想」而不是「取消」', !!btnByText(modal2, '再想想') && !btnByText(modal2, '取消'));
+
+// 先点「再想想」：什么都不该发生
+const count2 = store.list('books').length;
+btnByText(modal2, '再想想').dispatch('click');
 await sleep(0);
-eq('取消后书架本书不变', store.list('books').length, count2);
-eq('取消后 bookId 还在', store.get('creations', item.id).bookId, saved.id);
+eq('点「再想想」书架一本不少', store.list('books').length, count2);
+eq('点「再想想」后创作还记着那本书', store.get('creations', item.id).bookId, saved.id);
+
+// 再点一次星标，这次点「取消收藏」
+const page3 = render({ params: { id: item.id } });
+barActions(page3)[0].dispatch('click');
+const modal3 = roots.get('modal-root');
+ok('第二次弹出的依旧是取消收藏确认', !!btnByText(modal3, '取消收藏'));
+btnByText(modal3, '取消收藏').dispatch('click');
+await sleep(0);
+eq('取消后书架里那本书没了', store.list('books').some((b) => b.id === saved.id), false);
+eq('取消后创作的 bookId 被清空', store.get('creations', item.id).bookId, '');
+eq('取消后 isCollected 为假', store.isCollected(store.get('creations', item.id)), false);
+
+/* ================= 收藏指针 ⇄ 书架，双向都别留残影 ================= */
+/* 这次真正修掉的就是这一段：只删 books、不管 creations[].bookId 的话，
+   首页那条创作会一直挂着「已收藏」的书签图标，点进详情却是空星标。 */
+
+console.log('\n== 书架里删书，创作的收藏指针要跟着清 ==');
+const cr2 = store.add('creations', { title: '夜航船', request: '要求', content: '正文。' });
+const book2 = store.collectCreation(cr2);
+eq('收藏后指针指到了那本书', store.get('creations', cr2.id).bookId, book2.id);
+eq('收藏后 isCollected 为真', store.isCollected(store.get('creations', cr2.id)), true);
+eq('重复收藏不会多建书', store.collectCreation(store.get('creations', cr2.id)).id, book2.id);
+eq('重复收藏后书架里还是只有它一本', store.list('books').filter((b) => b.id === book2.id).length, 1);
+
+const cr2b = store.add('creations', { title: '别的书', request: '要求', content: '正文。' });
+const book2b = store.collectCreation(cr2b);
+
+store.removeBooks([book2.id]);   // 相当于在书架里把这一本删掉
+eq('删书后书架里没有它了', store.list('books').some((b) => b.id === book2.id), false);
+eq('删书后创作的 bookId 被清空', store.get('creations', cr2.id).bookId, '');
+eq('删书后 isCollected 为假（首页图标据此消失）', store.isCollected(store.get('creations', cr2.id)), false);
+eq('别的创作的收藏指针不受牵连', store.get('creations', cr2b.id).bookId, book2b.id);
+
+console.log('\n== 悬空指针：书没了但 bookId 还留着 ==');
+const cr3 = store.add('creations', { title: '归途', request: '要求', content: '正文。' });
+const book3 = store.collectCreation(cr3);
+store.remove('books', book3.id);   // 绕过 removeBooks，故意留一个悬空指针
+eq('造出来的确实是指向不存在书籍的指针', !!store.get('creations', cr3.id).bookId, true);
+eq('collectedBook 认得出来（返回 null）', store.collectedBook(store.get('creations', cr3.id)), null);
+eq('isCollected 为假', store.isCollected(store.get('creations', cr3.id)), false);
+eq('此时再收藏会新建一本，而不是复用那条死指针', store.collectCreation(store.get('creations', cr3.id)).id !== book3.id, true);
 
 /* ================= 3) 老存档里已经收藏过的书 ================= */
 /* 章节名没有改名入口，老书不改就永远是错的（书名是本书名、章节也是同名）。
@@ -266,6 +324,30 @@ eq('已经有续写的书，第一章同样改掉', lb[1].chapters[0].title, '�
 eq('续写出来的第 2 章不碰', lb[1].chapters[1].title, '第2章');
 eq('本来就有正经章节名的书不动', lb[2].chapters[0].title, '楔子');
 eq('没有章节的书不炸', lb[3].chapters.length, 0);
+
+/* ================= 4) 老存档里的悬空收藏指针 ================= */
+/*
+ * 老存档里很可能已经有「bookId 指向一本早被删掉的书」的创作 —— 那正是
+ * 首页图标一直挂着的原因。装载时必须一次清干净，不能等用户自己去碰。
+ */
+console.log('\n== 老存档：指向不存在书籍的收藏指针被清掉 ==');
+mem.set('somnus_state_v1', JSON.stringify({
+  books: [{ id: 'bk1', title: '在的', chapters: [{ id: 'x1', title: '第1章', content: '' }] }],
+  creations: [
+    { id: 'k1', title: '书还在', content: '', bookId: 'bk1' },
+    { id: 'k2', title: '书没了', content: '', bookId: 'ghost' },
+    { id: 'k3', title: '从没收藏过', content: '' }
+  ]
+}));
+const legacy2 = await import('../js/store.js?dangling=1');
+const byId = (id) => legacy2.get('creations', id);
+eq('书还在的，指针保留', byId('k1').bookId, 'bk1');
+eq('书没了的，指针被清空', byId('k2').bookId, '');
+eq('从没收藏过的，不会凭空长出一个指针', byId('k3').bookId, undefined);
+eq('清完之后 isCollected 判得对', legacy2.isCollected(byId('k1')), true);
+eq('指向鬼书的那个判为未收藏', legacy2.isCollected(byId('k2')), false);
+/* 迁移是「修饰」不是「重建」：别的字段一个字都不能动 */
+eq('迁移不动标题', byId('k2').title, '书没了');
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

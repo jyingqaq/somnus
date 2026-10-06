@@ -161,6 +161,18 @@ function migrate(s) {
     if (first && b.title && first.title === b.title) first.title = chapterTitle(1);
   });
 
+  /*
+   * 悬空的收藏指针：创作上记着 bookId，可那本书早就不在了（书架里删过书、
+   * 或恢复了一份只有创作的备份）。
+   *
+   * 「已收藏」的唯一判据是 `bookId 指向的书真的还在`（见 collectedBook），
+   * 而首页列表原先只看 `bookId` 有没有值 —— 悬空指针下首页挂着「已收藏」的书签、
+   * 点进详情却是空星标，两处自相矛盾。这里在装载时一次性清干净，
+   * 老存档不用等用户自己去碰。
+   */
+  const bookIds = new Set(s.books.map((b) => b.id));
+  s.creations = (s.creations || []).map((c) => (c.bookId && !bookIds.has(c.bookId) ? { ...c, bookId: '' } : c));
+
   LIB_KEYS.forEach((k) => {
     s[k] = (s[k] || []).map((it) => ({ folderId: '', ...it }));
   });
@@ -523,6 +535,63 @@ export function addBookFromCreation(creation) {
     intro: it.request || '',
     chapters: [{ title: chapterTitle(1), content: it.content || '' }]
   });
+}
+
+/* ---------------- 收藏（创作 ⇄ 书架） ---------------- */
+
+/**
+ * 这条创作收藏的那本书，没收藏（或书已经被删）时返回 null。
+ *
+ * **判据只有这一处**：`bookId` 指向的书**真的还在**才算已收藏。
+ * 只看 `bookId` 有没有值是错的 —— 书架里把书删掉之后它就成了悬空指针，
+ * 界面会一直显示「已收藏」，而详情页按「书还在吗」算出来是空星标，
+ * 同一个事实两处说法不一样。首页列表的书签图标、详情页的星标都走这里。
+ */
+export function collectedBook(creation) {
+  const id = creation && creation.bookId;
+  return (id && get('books', id)) || null;
+}
+
+/** 这条创作是否已收藏。首页列表的书签图标与详情页的星标共用这一处判据。 */
+export function isCollected(creation) {
+  return !!collectedBook(creation);
+}
+
+/**
+ * 删除书籍，并把指向它们的收藏指针一并清掉。
+ *
+ * **所有删书入口都必须走这里**（书架里单个 / 批量删除、取消收藏、删除创作）：
+ * 只删 `books` 而不管 `creations[].bookId`，那条创作就永远挂着「已收藏」的标记，
+ * 再点一次收藏还会凭空多出一本同名的书。删书和清指针是一件事，拆成两步
+ * 早晚会有人只做一半 —— 所以收在同一个函数里。
+ */
+export function removeBooks(ids) {
+  const set = new Set(Array.isArray(ids) ? ids : [ids]);
+  state.books = (state.books || []).filter((it) => !set.has(it.id));
+  state.creations = (state.creations || []).map((it) => (
+    it.bookId && set.has(it.bookId) ? { ...it, bookId: '' } : it
+  ));
+  emit();
+}
+
+/**
+ * 收藏：把创作存成书架里的一本书，并记下指针。
+ * 已经收藏过就直接把那本还回去，不重复建书（重复点、悬空指针恢复后重收都不会多出一本）。
+ */
+export function collectCreation(creation) {
+  const exist = collectedBook(creation);
+  if (exist) return exist;
+  const book = addBookFromCreation(creation);
+  state.creations = (state.creations || []).map((it) => (
+    it.id === creation.id ? { ...it, bookId: book.id, updatedAt: Date.now() } : it
+  ));
+  emit();
+  return book;
+}
+
+/** 取消收藏：把书删掉，指针交给 removeBooks 一并清。 */
+export function uncollectCreation(creation) {
+  if (creation && creation.bookId) removeBooks(creation.bookId);
 }
 
 export function addChapter(bookId, chapter) {

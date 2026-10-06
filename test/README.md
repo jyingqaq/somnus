@@ -272,12 +272,27 @@ DOM 替身比 `settingsApi` 那份多补了几个：菜单要挂 `document.body`
 **`collectionPicker.test.mjs`** 守首页输入框那三个入口（角色 / 世界书 / 灵感）的文件夹分组，
 跑的是**真实的** `views/home.js` 与 `views/library.js`。详见下面「首页挑条目也要走文件夹」一节。
 
-**`creationBook.test.mjs`** 守「收藏到书架」的命名：**首页标题输入框里填的那个名字是书名**，
-正文进第 1 章、章节名固定「第1章」。曾出过的错是拿创作标题同时当书名和第一章名 ——
-打开书看到「一本书 + 一个同名的章节」，跟后续「续写」默认的「第2章」「第3章」也接不上。
-分两段：先直接调 `store.addBookFromCreation` 断言写进去的书（含标题只有空白、整个对象都缺的兜底），
-再用最小 DOM 替身跑**真实的** `creation.render()` —— 点星标 → 确认框点「收藏」→ 断言书架里那本书，
-免得只测了 store、而视图里自己另拼一份参数却漏掉。
+**`creationBook.test.mjs`** 守「收藏到书架」的两条规则。
+
+一是**命名**：首页标题输入框里填的那个名字是书名，正文进第 1 章、章节名固定「第1章」。
+曾出过的错是拿创作标题同时当书名和第一章名 —— 打开书看到「一本书 + 一个同名的章节」，
+跟后续「续写」默认的「第2章」「第3章」也接不上。
+
+二是**收藏指针只有一处判据、一条收尾**（`store.collectedBook` / `isCollected` /
+`collectCreation` / `uncollectCreation` / `removeBooks`）。这条是补上的：
+`creations[].bookId` 只在收藏那一刻写过，书架里把书删掉之后它就悬空了 ——
+首页那条创作一直挂着「已收藏」的书签图标、点进详情却是空星标，再点一次收藏还会多出一本同名的书。
+
+分两段：先直接调 `store.*` 断言数据层（含标题只有空白、整个对象都缺的兜底，
+以及故意造一个悬空指针看判据认不认得出来），再用最小 DOM 替身跑**真实的** `creation.render()` ——
+点星标 → 确认框点「收藏」/「取消收藏」→ 断言书架里那本书，免得只测了 store、
+而视图里自己另拼一份参数却漏掉。
+
+> **这一段以前是假绿的**：它点的是确认框里的「取消」（也就是「什么都不做」），
+> 于是「书架本书不变」这条断言永远成立，看着像守了取消收藏，其实一次都没碰到那条路径。
+> 现在两颗按钮都认准：真动作是「取消收藏」，另一颗叫「再想想」
+> （默认那个「取消」跟「取消收藏」并排时，一眼分不清哪颗才是真动作）。
+> 验过有没有牙：把 `uncollectCreation` 改成空实现，实测 3 条红。
 
 这份替身比 `sheetBatch` 那份多两处，少一处：
 
@@ -361,7 +376,7 @@ node verify-fab-glow.mjs      # 浏览器：加号光晕跟随主题色，21 项
 node verify-sheet-batch.mjs   # 浏览器：载入预设长按批量删除，37 项，顺带出两张图（服务 8791 + CDP 9341）
 node verify-compose-open.mjs  # 浏览器：加号展开后点功能图标不收起，47 项，顺带出两张图（服务 8791 + CDP 9341）
 node verify-collection-picker.mjs # 浏览器：首页挑角色/世界书/灵感走文件夹分组，38 项，顺带出两张图（服务 8791 + CDP 9341）
-node verify-creation-book.mjs # 浏览器：收藏到书架的命名 + 老存档迁移，15 项，顺带出一张图（服务 8791 + CDP 9341）
+node verify-creation-book.mjs # 浏览器：收藏到书架的命名 + 收藏指针同步，28 项，顺带出一张图（服务 8791 + CDP 9341）
 node verify-api-gate.mjs      # 浏览器：没配 API 时不进「创作中」而是弹设置入口，19 项，顺带出一张图（服务 8791 + CDP 9341）
 node verify-inline-busy.mjs   # 浏览器：三处 AI 入口的按钮忙态 + 等待期可切页，62 项，顺带出四张图（服务 8791 + CDP 9341）
 node verify-chapter-rename.mjs # 浏览器：点章节名改名 + 虚线提示，18 项，顺带出两张图（服务 8777 + CDP 9333）
@@ -404,6 +419,13 @@ node shot-fab-glow.mjs        # 出图：浅色/自定义橙/深色三张，肉�
 **必须 `Page.reload()`**，不能只 `Page.navigate` 到带 hash 的地址 —— 只改 hash 属于同文档导航，
 页面不会重新执行模块，`load()` 也就读不到刚塞进去的存档，表现是「断言读到的是播种前那份空 state」
 （书的目录空白、星标按钮找不到），很容易误判成功能坏了。
+
+**播种时还要把 `ui.lastSeenUpdate` 写成当前最新那条更新的 id**（从 `js/changelog.js` 现取，
+别写死）。否则一打开应用「更新说明」弹窗会先占住 `#modal-root` —— 它 `dismissable:false`、
+只留「已阅」一条出路，凡是按文字找 `#modal-root .btn` / `.modal-body` 的断言都可能读到它。
+`verify-creation-book.mjs` 靠中途换 hash（每次路由重置都会 `closeAllModals()`）侥幸躲过去了，
+`verify-api-gate.mjs` 全程停在 `#/home` 没换过，就实打实地栽在这上面
+（「说清了缺的是 Key」读到的永远是更新说明的正文）。两边现在都播了这个字段。
 
 **`verify-api-gate.mjs`** 连 `8791` + CDP `9341`（和 `verify-creation-book.mjs` 同一套端口），
 在真浏览器里验「没配 API 时点生成剧情不进创作中」。它比 DOM 替身那条 `apiGate.test.mjs` 多守两处：

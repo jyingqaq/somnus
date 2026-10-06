@@ -12,7 +12,9 @@ export function render({ params }) {
   const page = h('div', { class: 'page' });
   if (!item) return page;
 
-  const collected = !!(item.bookId && store.get('books', item.bookId));
+  // 判据收在 store.isCollected（bookId 指向的书真的还在才算已收藏），
+  // 与首页列表的书签图标同源 —— 各写一份的话，书架里删过书之后两边就会打架。
+  const collected = store.isCollected(item);
 
   const actions = [
     collected
@@ -24,11 +26,13 @@ export function render({ params }) {
           const ok = await showConfirm({
             title: '取消收藏',
             message: item.title,
-            confirmLabel: '取消收藏'
+            confirmLabel: '取消收藏',
+            // 别用默认的「取消」：跟「取消收藏」并排，一眼扫过去分不清哪颗才是真动作
+            cancelLabel: '再想想'
           });
           if (!ok) return;
-          store.remove('books', item.bookId);
-          store.update('creations', item.id, { bookId: '' });
+          // 删书 + 清指针是一件事，走 store 的同一条收尾，不在这里手工拆两步
+          store.uncollectCreation(item);
           toast('已移出书架');
           reload();
         }
@@ -43,8 +47,7 @@ export function render({ params }) {
           });
           if (!ok) return;
           // 书名 = 创作标题（首页标题输入框那个），正文进第 1 章，章节名固定「第1章」
-          const book = store.addBookFromCreation(item);
-          store.update('creations', item.id, { bookId: book.id });
+          store.collectCreation(item);
           toast('已加入书架');
           reload();
         }
@@ -55,7 +58,7 @@ export function render({ params }) {
       onClick: async () => {
         const ok = await showConfirm({ title: '删除', message: item.title });
         if (!ok) return;
-        if (item.bookId) store.remove('books', item.bookId);
+        store.removeBooks(item.bookId);
         store.remove('creations', item.id);
         navigate('/home');
       }

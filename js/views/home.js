@@ -165,7 +165,11 @@ export function render() {
         h('div', { class: 'row-title', text: it.title }),
         h('div', { class: 'row-sub', text: fmtTime(it.createdAt) })
       ),
-      it.bookId ? icon('bookmark', 18, 'ico row-ico') : null,
+      // 书签图标表示「已收藏到书架」。判据必须和详情页那颗星标同源（store.isCollected：
+      // bookId 指向的书真的还在），别在这儿另写一套 `it.bookId ? …` ——
+      // 两处各判各的，早晚会在某个边界上打架（书架删书、老存档、恢复备份……）。
+      // 悬空的指针本身也已经在 store 侧清掉（removeBooks / migrate），这里是同一件事的第二道。
+      store.isCollected(it) ? icon('bookmark', 18, 'ico row-ico') : null,
       h('span', { class: 'chev' }, icon('chev', 18))
     ))));
   }

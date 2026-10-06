@@ -20,6 +20,10 @@ import fs from 'node:fs';
 
 const CDP = 'http://127.0.0.1:9341';
 const APP = 'http://127.0.0.1:8791/index.html';
+/* 播种时要把 ui.lastSeenUpdate 写成当前最新那条更新，否则「更新说明」弹窗会先占住
+   #modal-root（它只留「已阅」一条出路），后面按文字找按钮可能找错弹窗。
+   id 现取而不写死：下次在 js/changelog.js 加一条更新，这里不用回来改。 */
+const { CHANGELOG } = await import('../js/changelog.js');
 
 let pass = 0, fail = 0;
 const ok = (n, c, e = '') => {
@@ -78,6 +82,7 @@ await ev(`(async () => {
 
 /* 一份「老版本收藏出来的书」：书名与第一章同名，正是当年那条写入路径留下的样子 */
 const legacy = {
+  ui: { lastSeenUpdate: CHANGELOG[0] && CHANGELOG[0].id },
   books: [
     { id: 'b1', title: '旧书', intro: '当初的要求', createdAt: 1759300000000,
       chapters: [{ id: 'c1', title: '旧书', content: '第一章正文……', createdAt: 1759300000000 }] }
@@ -132,6 +137,64 @@ await sleep(700);
 const shelf = await ev(`[...document.querySelectorAll('.card .list .row-title')].map((n) => n.textContent.trim())`);
 ok('书架里能看到「星海归途」', shelf.includes('星海归途'), JSON.stringify(shelf));
 ok('书架里没有叫「第1章」的书', !shelf.includes('第1章'), JSON.stringify(shelf));
+
+/*
+ * 星标的「实心 / 空心」只能认 fill 属性：svg() 给每颗图标都写了 stroke="currentColor"，
+ * 拿 innerHTML.includes('currentColor') 当判据的话空心实心都会判成真（踩过）。
+ */
+const starFill = () => ev(`document.querySelector('.tb-right .tb-btn svg').getAttribute('fill')`);
+/** 首页那条创作右侧的书签图标（表示「已收藏到书架」）在不在 */
+const homeBookmark = () => ev(`!!document.querySelector('#view .card .list .row .row-ico')`);
+/** 走完整的书架删除流程：进多选 → 选中第一本 → 删除 → 确认 */
+const deleteFirstBook = async () => {
+  await ev(`document.querySelector('.tb-right .tb-btn').click()`);
+  await sleep(300);
+  await ev(`document.querySelector('#view .card .list .row').click()`);
+  await sleep(300);
+  await ev(`document.querySelector('.tb-right .tb-btn.danger').click()`);
+  await sleep(300);
+  await clickByText('#modal-root .btn', '删除');
+  await sleep(700);
+};
+
+console.log('\n== 书架里删书，首页那条创作的「已收藏」图标要跟着消失 ==');
+await ev(`location.hash = '#/home'`);
+await sleep(700);
+ok('收藏后首页挂着书签图标', await homeBookmark());
+await ev(`location.hash = '#/shelf'`);
+await sleep(700);
+await deleteFirstBook();
+/* 存档里还播着一本老书「旧书」（上面验迁移用），所以一律按书名找，别数总数 */
+const bookTitles = () => ev(`JSON.parse(localStorage.getItem('somnus_state_v1')).books.map((b) => b.title)`);
+ok('书架里已经没这本书了', !(await bookTitles()).includes('星海归途'), JSON.stringify(await bookTitles()));
+ok('创作的 bookId 也一并清掉了',
+  (await ev(`JSON.parse(localStorage.getItem('somnus_state_v1')).creations.find((c) => c.id === 'cr1').bookId`)) === '');
+await ev(`location.hash = '#/home'`);
+await sleep(700);
+ok('首页的书签图标消失了（以前会一直挂着）', !(await homeBookmark()));
+
+console.log('\n== 详情：取消收藏真的把书删掉 ==');
+await ev(`location.hash = '#/creation/cr1'`);
+await sleep(700);
+ok('删书后星标回到空心', (await starFill()) === 'none', await starFill());
+await ev(`document.querySelector('.tb-right .tb-btn').click()`);
+await sleep(300);
+ok('点「收藏」重新加入书架', await clickByText('#modal-root .btn', '收藏'));
+await sleep(800);
+ok('书架上又有一本「星海归途」', (await bookTitles()).includes('星海归途'), JSON.stringify(await bookTitles()));
+ok('星标变实心', (await starFill()) === 'currentColor', await starFill());
+
+await ev(`document.querySelector('.tb-right .tb-btn').click()`);
+await sleep(300);
+const unfavBtns = await ev(`[...document.querySelectorAll('#modal-root .btn')].map((n) => n.textContent.trim())`);
+ok('取消收藏的确认框是「再想想 / 取消收藏」，不会看混', unfavBtns.join('|') === '再想想|取消收藏', JSON.stringify(unfavBtns));
+ok('点「取消收藏」', await clickByText('#modal-root .btn', '取消收藏'));
+await sleep(800);
+ok('书架里又没它了', !(await bookTitles()).includes('星海归途'), JSON.stringify(await bookTitles()));
+ok('星标回到空心', (await starFill()) === 'none', await starFill());
+await ev(`location.hash = '#/home'`);
+await sleep(700);
+ok('首页书签图标也没了', !(await homeBookmark()));
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 ws.close();
