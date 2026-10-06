@@ -613,6 +613,45 @@
 @keyframes toastInTop { from { opacity: 0; transform: translateY(-10px) scale(.96); } }
 @keyframes toastOut { to { opacity: 0; transform: translateY(6px) scale(.97); } }
 
+/* ================= 新版本提示条 ================= */
+/*
+ * 常驻在底部导航上方（js/components/updateBar.js）。
+ * z-index 60：压过 tabbar(50) 与页面内容，但让每个弹窗(100+)都能盖住它 ——
+ * 用户正在填表单时提示条不该浮在弹窗上面。
+ * 位置和 toast 撞在一起是有意的：toast 是 1.8 秒就走的轻提示，
+ * 而且它 z-index 200 更高，短暂遮一下可以接受。
+ */
+.update-bar {
+  position: fixed;
+  left: 12px; right: 12px;
+  bottom: calc(var(--nav-h) + var(--safe-b) + 12px);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  animation: toastIn .2s ease;
+}
+/* hidden 压不过作者样式的 display（本项目在 .modal-foot .btn 上栽过一次），
+   自己补一条，否则「关掉」之后它照样亮着 */
+.update-bar[hidden] { display: none; }
+.up-ico { flex: none; color: var(--accent); }
+.up-text {
+  flex: 1;
+  min-width: 0;
+  font-size: calc(14px * var(--fs));
+}
+.up-x {
+  flex: none;
+  display: inline-flex;
+  padding: 4px;
+  color: var(--dim);
+}
+
 /* ================= 加载遮罩 ================= */
 .loading {
   position: fixed; inset: 0;

@@ -21,6 +21,7 @@ node collectionPicker.test.mjs
 node creationBook.test.mjs
 node chapterRename.test.mjs
 node updateNotice.test.mjs
+node pwaUpdate.test.mjs
 node startCmd.test.mjs
 ```
 
@@ -396,6 +397,7 @@ node verify-inline-busy.mjs   # 浏览器：三处 AI 入口的按钮忙态 + �
 node verify-chapter-rename.mjs # 浏览器：点章节名改名 + 虚线提示，18 项，顺带出两张图（服务 8777 + CDP 9333）
 node verify-cloud-backup.mjs  # 浏览器：云端备份上传/恢复 + 恢复不动外观，62 项，顺带出三张图（服务 8823 + CDP 9363）
 node verify-update-notice.mjs # 浏览器：更新弹窗自动出现 + 已阅后不再弹，20 项，顺带出两张图（服务 8791 + CDP 9341）
+node verify-pwa-update.mjs    # 浏览器：提示式更新（新壳卡 waiting → 提示条 → 点一下换壳），21 项，顺带出一张图（服务脚本自己起，只需 CDP 9341）
 node verify-prompt-sort.mjs   # 浏览器：提示词块长按拖动排序（真触摸事件 + 手机视口），31 项，顺带出一张图（服务 8791 + CDP 9341）
 node shot-fab-glow.mjs        # 出图：浅色/自定义橙/深色三张，肉眼比对
 ```
@@ -488,6 +490,68 @@ manifest 必填字段齐全、SW 进入 activated、**断网后 SPA 仍能渲染
 
 `pwaState.test.mjs` 是纯 node 断言（读源码文本，不起浏览器），
 验的是 `installState()` 的判定顺序 —— 见下面「安装入口不能等事件」。
+
+## 装到桌面的应用为什么老是拿不到新版（提示式更新）
+
+**用户报的**：装到手机桌面后更新**有时能拿到、有时拿不到**；同一个地址在手机浏览器里没问题。
+
+**结论：不是「查不到新版」，是「装上了也换不上」。** 实测（本地副本模拟「发新版 = VERSION 加一 + 改一份 css」）：
+
+| 时点 | Service Worker 状态 |
+|---|---|
+| 发布前 | `active`，缓存只有 `somnus-v19` |
+| 发布后第 1 次打开 | **`waiting=installed`**（新壳装好了、卡着不启用），v19 + v20 两份缓存并存，页面仍由旧壳服务 |
+| 又打开一次 | 还是 `waiting` |
+| 紧接着再发一版 | 还是 `waiting`（但 v21 也装上了 → **每次打开都查得到新版**，不存在「检查被缓存挡住」） |
+| **把所有窗口关掉再打开** | `waiting` 消失、缓存只剩 v21 —— 这一刻才真换壳 |
+
+根因是三件事绑在一起：`sw.js` 对同源资源 cache-first；「丢掉整份旧壳」绑在新 SW 的
+**activate** 上；而 activate 又必须等**所有窗口都关光**。装到桌面的应用恰恰很少被真正关掉
+（安卓按 home 只是挂后台、从图标点回来**复用同一个文档**，连导航都没有 —— 于是连更新检查
+都不会发生），浏览器标签页却常被关或被系统回收。这就是「浏览器没事、装了应用就时好时坏」。
+
+`sw.js` 里那个 `message` → `skipWaiting()` 的监听**早就留好了，但全项目没人发过这条消息** ——
+这次就是把它接上。
+
+| 位置 | 做了什么 |
+|---|---|
+| `js/pwa.js` | 盯 `waiting`（`updatefound` / `statechange` + 打开时就查一次 `reg.waiting`）；`visibilitychange` 时主动 `registration.update()`（补上「复用同一文档永远不检查」的洞，5 分钟节流）；`applyUpdate()` = 给 waiting 发 `skip-waiting` + `controllerchange` 后只重开一次 |
+| `js/components/updateBar.js` | 底部常驻「有新版本可用 / 立即更新」，可点 × 只静音本次会话 |
+| `js/app.js` | `mountUpdateBar()`，唯一挂载点 |
+| `css/components.css` | `.update-bar`（z-index 60，让所有弹窗都盖得住它）+ `.update-bar[hidden]` |
+| `sw.js` | `SHELL` 收 `updateBar.js`；补 v19 注释段 |
+
+「提示式」是刻意的：这是写作应用，**不偷偷刷新**（正在写的字不能被冲掉），只挂条提示等用户决定。
+
+四条不写就会踩的：
+
+1. **`updatefound` 在首次注册时收不到**。注册与安装是同一个动作，`register()` 解析时事件早发过了
+   → 所以 `watchRegistration()` 末尾要主动补一次 `trackIncoming(reg.installing)`。
+   漏了这行不影响使用（首次安装本来就不该提示），但会让「补一次」那条路完全没有兜底。
+2. **首次安装绝不能提示**，判据是 `worker.state === 'installed' && navigator.serviceWorker.controller`
+   —— 第一次安装时 controller 是空的（装完直接 activate）。这条**必须用 `__barSeen` 那种计数方式守**：
+   见下面第 3 条。
+3. **不能只断「某一刻提示条不可见」**（假绿）。首次安装的误报会在新壳 activate、
+   `controllerchange` 触发时被 `setUpdateReady(false)` 自己收掉，等断言去读时早看不见了 ——
+   和 api-gate 那次「闪一下的创作中」一模一样。所以脚本用
+   `Page.addScriptToEvaluateOnNewDocument` 播种一个 `MutationObserver`，**数整段时间里露头几次**。
+   实测：把 `&& navigator.serviceWorker.controller` 删掉，这条报「露头 1 次」。
+4. **`.update-bar[hidden] { display: none }` 不能省** —— `hidden` 压不过作者样式的 `display`，
+   这正是本项目在 `.modal-foot .btn` 上栽过的那个坑。
+
+**用例**：`pwaUpdate.test.mjs`（25 项，纯 node）守「接线」——每个环节断了都不报错、只是又回到
+「时好时坏」，只能靠读源码钉住（含 **SHELL ↔ 磁盘双向核对**）；`verify-pwa-update.mjs`（21 项）
+是真机行为：**它自己起静态服务**（服务的是一份可写的临时副本 `test/tmp/pwa-update/`，
+只在 CDP 9341 要外部起）—— 因为必须跑到一半时真的发布一次新版，才验得到
+「已装机的用户不关窗口也能拿到新版」。
+
+有牙验证（都实测过）：删掉 `waiting.postMessage('skip-waiting')` → 第 3 段 4 条红，其中
+「点完拿到了新版资源」是最关键的一条（只断「提示条出现了」是抓不到它的）；
+去掉 `&& navigator.serviceWorker.controller` → 「露头 1 次」红。
+
+> **踩到的环境坑：`fs.cpSync` 复制目录会让 node 进程被直接杀掉**（退出码 127，
+> 不抛异常、连 `process.on('exit')` 都不跑，排查了很久）。`mkdirSync` + `copyFileSync`
+> 手写递归没事 —— 脚本里的 `copyDir()` 就是为这个写的。
 
 ## 图标生成
 
@@ -627,6 +691,8 @@ const pick = (type) => pickCollection({ type, onPick: (it) => editor.insertChip(
   会直接返回旧副本 —— `Network.setCacheDisabled` 只管 HTTP 缓存，**管不到 SW**。
   验证前必须 `getRegistrations().unregister()` + `caches.delete()`。
   > 反过来对部署也成立：**发新版本后用户要刷两次才拿到新代码**。这是 cache-first 的固有代价。
+  > 装到桌面的用户更惨 —— 他们连「刷两次」都没有（从图标点回来是复用同一个文档）。
+  > 那条路现在由底部「有新版本可用」提示条兜着，见上面「装到桌面的应用为什么老是拿不到新版」。
 - **HTTP 缓存和 SW 缓存会互相"喂"旧内容**。SW 的后台更新如果走普通 `fetch(req)`，
   浏览器启发式缓存里那份旧响应会被原样写回 SW 缓存，cache-first 就永远收敛不到新版本 ——
   表现是「样式明明改对了，用户刷新多少次还是旧的」。所以后台更新用

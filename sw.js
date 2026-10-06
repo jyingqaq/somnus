@@ -70,8 +70,20 @@
  * 的注释）。以前在创作详情里点删除会 store.removeBooks(item.bookId)，书架里收藏的那本
  * 跟着一起没 —— 用户就不敢删首页的条目，列表越堆越长。现在只删创作，书留在书架里。
  * 换缓存名的理由同 v6：旧壳里的 creation.js 删一下还是「一删俱删」，不换壳就白改。
+ *
+ * v19：装了桌面的用户老是拿不到新版 —— 改成「提示式更新」
+ * （新增 js/components/updateBar.js，改动 js/pwa.js · js/app.js · css/components.css）。
+ * 根因不在检查上：浏览器**能**发现新 sw.js 并把它装好，但新壳会一直卡在 waiting，
+ * 因为「丢掉整份旧壳」绑在 activate 上，而 activate 必须等所有窗口关光 ——
+ * 装到桌面的应用恰恰很少被真正关掉（挂后台、从图标点回来复用同一个文档，
+ * 连导航都没有，所以连检查都不发生）。下面的 message 监听其实早就留好了
+ * skip-waiting，只是全项目没人发过这条消息，这次才接上：pwa.js 现在会盯
+ * waiting（updatefound/statechange + 从后台切回来时主动 update()），底部提示条
+ * 让用户点一下才切壳并重开。
+ * 换缓存名的理由同 v6：旧壳里的 pwa.js 只 register、不看 waiting，
+ * 已装机的用户还是只能靠「把所有窗口关光」碰运气。
  */
-const VERSION = 'v19';
+const VERSION = 'v20';
 const CACHE = `somnus-${VERSION}`;
 /* 应用壳：与 index.html 实际引用的文件保持一致 */
 const SHELL = [
@@ -111,6 +123,7 @@ const SHELL = [
   './js/components/sortable.js',
   './js/components/toast.js',
   './js/components/topbar.js',
+  './js/components/updateBar.js',
 
   './js/panels/background.js',
   './js/panels/fonts.js',
