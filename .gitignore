@@ -1,13 +1,18 @@
-# ── 入库规则（这个仓库之前没有 .gitignore）────────────────────────────
-# 原则：入库的只有「应用本身 + 测试脚本 + 让测试跑起来的最小依赖」，
-# 凡是跑一次就能再生成的中间产物，一律挡在外面。
+# ── 入库规则 ──────────────────────────────────────────────────────────
+# 这个仓库同时是「源码」和「GitHub Pages 的站点根目录」—— push 上去就等于发布。
+# 所以入库的东西只有一样：**网站运行真正需要的文件**。
+#
+# 站点实际要的只有这 6 项，其余一律不传：
+#   index.html   manifest.webmanifest   sw.js   css/   js/   icons/
+#
+# 判断标准很简单：它在浏览器里被请求过吗？没有就别进来。
 
 # 系统 / 编辑器垃圾
 Thumbs.db
 desktop.ini
 .DS_Store
 
-# Python 缓存（test/make-icons.py、make-sample-docx.py 跑出来的）
+# Python 缓存
 __pycache__/
 *.pyc
 
@@ -20,19 +25,21 @@ __pycache__/
 *~
 *.swp
 
-# 临时复现脚本：test/ 下划线开头的都不入库（现场查问题用的，查完就该删）
-test/_*.mjs
-
-# 真机验证的产出图：verify-*.mjs / shot-*.mjs 每次跑都会重新出图，不入库。
-# 想看某次验证的界面对照，起服务 + 无头浏览器重跑对应脚本即可。
-test/shot-*.png
+# 测试与开发工具：浏览器一个字节都用不到，传上去只是白占地方。
+# 想换台机器跑测试，从历史里捞回来就行（删除那次之后仍然能在旧 commit 里找到）：
+#   git log --oneline -- test | tail -1
+#   git checkout <那次删除之前的 commit> -- test
+test/
 
 # 无头浏览器的工作目录（--user-data-dir）
 tmp/
 .chrome*/
 
-# ── 注意：下面这些「看着像该忽略、其实故意入库」，别手贱加进来 ──────────
-#   test/node_modules/  —— 只装了 ws 一个包（20 个文件），专门入库的，
-#                          好让真机验证脚本 clone 下来直接能跑，不用先 npm install。
-#   test/*.docx         —— docImport 测试的输入样例，make-sample-docx.py 的产物，
-#                          但它是「测试数据」不是「缓存」，必须跟着仓库走。
+# 本机的启动 / 发布脚本：只在自己这台机器上用，跟网站本身无关，不该跟着发布。
+# push.cmd 开头 `cd /d "%~dp0"` 只认「自己所在的文件夹」，所以它放在项目里就能用；
+# 而它自己会 `git add -A` —— 不挡的话每次都会把自己（连带 start.cmd）提交上去。
+# 撤掉跟踪要在第一次生效时手动跑一次（.gitignore 管不到已跟踪的文件）：
+#   git rm --cached push.cmd
+#   git rm --cached start.cmd
+push.cmd
+start.cmd

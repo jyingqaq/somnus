@@ -105,7 +105,7 @@
  * 旧壳里的 js/pwa.js 也没有 checkForUpdates —— 不换壳，
  * 「设置 → 获取更新」这个按钮点下去查不到任何东西。
  */
-const VERSION = 'v21';
+const VERSION = 'v22';
 const CACHE = `somnus-${VERSION}`;
 /* 应用壳：与 index.html 实际引用的文件保持一致 */
 const SHELL = [
