@@ -30,6 +30,16 @@
 /** @type {Array<{id: string, date: string, title: string, items: string[]}>} */
 export const CHANGELOG = [
   {
+    id: 'v23',
+    date: '2026-10-18',
+    title: '换了新图标',
+    items: [
+      '应用图标换成那只趴在笔记本前打字的兔子，画得比原来大一整圈，四边几乎顶到边',
+      '透明底保留着：桌面壁纸露出来，深色壁纸上是白兔子，浅色壁纸上是描边的小画',
+      '顺手让浏览器标签页、手机主屏（iOS / Android）上的图标都换成同一只'
+    ]
+  },
+  {
     id: 'v21',
     date: '2026-10-06',
     title: '更新改成自己去拿',

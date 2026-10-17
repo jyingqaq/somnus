@@ -104,15 +104,21 @@
  * 换缓存名的理由同 v6：旧壳里那份 js/app.js 还会挂底部提示条、
  * 旧壳里的 js/pwa.js 也没有 checkForUpdates —— 不换壳，
  * 「设置 → 获取更新」这个按钮点下去查不到任何东西。
+ *
+ * v23：换成「在打字的兔子」图标（icons/ 下六个 icon-*.png 全部重出，
+ * 源图换成 icons/rabbit-typing.png，旧的 icons/a783.gif 删掉；index.html 的
+ * <link rel="icon"> 跟着改）。
+ * 图标是 cache-first 的同源静态资源，URL 没变（还是 icons/icon-192.png 这些），
+ * 不换缓存名已装机的用户会一直看着旧兔子 —— 同 v5。
  */
-const VERSION = 'v22';
+const VERSION = 'v24';
 const CACHE = `somnus-${VERSION}`;
 /* 应用壳：与 index.html 实际引用的文件保持一致 */
 const SHELL = [
   './',
   './index.html',
   './manifest.webmanifest',
-  './icons/a783.gif',
+  './icons/rabbit-typing.png',
   './icons/icon-32.png',
   './icons/icon-180.png',
   './icons/icon-192.png',
