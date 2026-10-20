@@ -110,8 +110,14 @@
  * <link rel="icon"> 跟着改）。
  * 图标是 cache-first 的同源静态资源，URL 没变（还是 icons/icon-192.png 这些），
  * 不换缓存名已装机的用户会一直看着旧兔子 —— 同 v5。
+ *
+ * v25：图标补底板 —— 上一版六个图标全是透明底，装到手机主屏直接变成黑方块
+ * （系统不会把图标合成到壁纸上，透明处一律按黑色画）。
+ * 现在除浏览器标签页那个 32px 之外，180 / 192 / 512 / maskable 都铺了
+ * 与 --bg 同色的 #f3f3f6 底板（test/make-icons.py 的 BG 常量）。
+ * 图标 URL 依然没变，所以必须换缓存名，否则已装机用户重新添加主屏拿到的还是黑图。
  */
-const VERSION = 'v24';
+const VERSION = 'v26';
 const CACHE = `somnus-${VERSION}`;
 /* 应用壳：与 index.html 实际引用的文件保持一致 */
 const SHELL = [
