@@ -116,8 +116,16 @@
  * 现在除浏览器标签页那个 32px 之外，180 / 192 / 512 / maskable 都铺了
  * 与 --bg 同色的 #f3f3f6 底板（test/make-icons.py 的 BG 常量）。
  * 图标 URL 依然没变，所以必须换缓存名，否则已装机用户重新添加主屏拿到的还是黑图。
+ *
+ * v27：manifest 的 id 从 "./" 改成 "/somnus/"。
+ * 实测（Chrome 154，见 test/check-installable.mjs）：相对 id 会被解析成 **origin 根**，
+ * 不是 manifest 所在目录 —— appId 变成 https://jyingqaq.github.io/，
+ * 等于这个应用在整站根上认领了身份。后果是「上一次装过的那个应用」和现在这套配置
+ * 顶在同一个 appId 上，重装时 Chrome 容易认为已经装过了，只给建快捷方式。
+ * 写死 "/somnus/" 后 appId 才是 .../somnus/，同时也避免同一 origin 下别的项目撞车。
+ * manifest 在 SHELL 里，同样必须换缓存名。
  */
-const VERSION = 'v26';
+const VERSION = 'v28';
 const CACHE = `somnus-${VERSION}`;
 /* 应用壳：与 index.html 实际引用的文件保持一致 */
 const SHELL = [
